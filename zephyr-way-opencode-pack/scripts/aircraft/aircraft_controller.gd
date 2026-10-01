@@ -57,6 +57,11 @@ func _ready() -> void:
 	_input = get_node_or_null(^"FlightInput") as FlightInput
 	if _input == null:
 		push_warning("AircraftController: no FlightInput child found; the aircraft will not respond to input.")
+	else:
+		# Input smoothing is a feel number, so it comes from the same tuning
+		# Resource as the flight model rather than being set on the input node.
+		_input.tuning = tuning
+		_input.resolve_smoothing_time()
 
 	_connect_ground_sampler()
 	respawn()

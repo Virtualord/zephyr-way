@@ -59,17 +59,64 @@ can be edited live in the inspector, shared between aircraft, and saved as
 `.tres` files. They also document themselves: every field has a comment saying
 what it does and what depends on it.
 
-Two speeds are *derived* rather than typed in:
+Derived values keep the numbers self-consistent, so editing one number cannot
+silently contradict another:
 
 ```
-lift_gain         = gravity / cruise_speed^2     -> level flight at cruise
-drag_coefficient  = acceleration / max_speed^2   -> max speed at full throttle
+lift_gain          = gravity / cruise_speed^2        -> 1 g lift in level cruise
+drag_coefficient   = gravity / (L:D * cruise^2)      -> draggy but turnable
+max_speed          = where remaining thrust = drag  -> actual top speed
 ```
 
-This keeps the numbers self-consistent. Editing `max_speed_knots` rebalances drag
-automatically instead of leaving the aircraft unable to reach its stated top
-speed. The override fields exist for the cases where a designer wants to break
-that relationship deliberately.
+### The flight model is anchored on physics, not on feel
+
+The one rule that governs `flight_model.gd`: **every force is expressible against
+gravity**, because the aircraft's mass is unknown and unnecessary. Lift, drag and
+thrust are all in m/s², and the model compares them to gravity rather than to a
+weight.
+
+That makes two derivations possible, and both are load-bearing:
+
+- **Lift** is calibrated so that at cruise speed, at the reference angle of
+  attack, it produces exactly gravity. Lift then scales with `v²` *and* with angle
+  of attack.
+- **Drag** is derived from a lift-to-drag ratio (9:1, a plausible value for a
+  light sport aircraft) rather than from the thrust budget.
+
+The drag derivation matters more than it looks. Sizing drag so that it "consumes
+all the thrust at max speed" is intuitive and wrong: it forces drag above lift at
+cruise, and because drag opposes the velocity vector it then cancels the lateral
+component of lift in a banked turn. The aircraft cannot turn at all.
+
+Three properties depend on lift scaling with angle of attack rather than airspeed
+alone:
+
+1. A climb settles instead of running away. Lift that only depends on airspeed
+   cannot be shed by the pilot, so above cruise speed the wing pulls more than
+   weight continuously, and the only way to reduce lift is to descend — which
+   raises airspeed and increases lift again.
+2. Stall is an angle, not a speed. A wing stalls because of the angle it is
+   flown at; an aircraft descending normally at low speed must not lose lift.
+3. Level hands-off flight is achievable, because trim is referenced to cruise
+   where lift and gravity balance.
+
+### Deliberate simplifications
+
+Notably absent, because `AGENTS.md` asks for arcade flight rather than a
+simulator:
+
+- **No lateral (sideforce) force.** The aircraft banks rather than sideslipping.
+  This is why weathervane alignment has to be strong: it is doing the work a real
+  fin and fuselage would.
+- **No propeller torque, P-factor or slipstream.**
+- **No sideslip drag.** Turning is free of the extra drag a real slipping wing
+  produces.
+- **Rate-commanded controls with a restoring term**, not a control surface model.
+- **Thrust follows a simple falloff curve** rather than a propeller efficiency map.
+
+The consequence worth knowing: turn rates land within about 10% of
+`g·tan(bank)/V` rather than exactly on it, and the difference is the deliberate
+auto-level assist.
 
 ### Scene tree
 
@@ -162,6 +209,7 @@ specifically to catch that.
 | `procedural_test.gd` | 118 | Palette contract, mesh geometry, flat shading, airframe proportions |
 | `input_map_test.gd` | 30 | Every action FlightInput reads exists and is wired |
 | `flight_model_test.gd` | 34 | Forces, stall, ground contact, heading convention |
+| `flight_regression_test.gd` | 43 | Specific flight-feel defects that were found and fixed |
 | `recorder_test.gd` | 19 | Replay determinism, recording budget |
 | `scene_test.gd` | 28 | Scenes load, wire together, and simulate without errors |
 
@@ -171,6 +219,29 @@ The flight assertions are deliberately loose. They guard against regressions lik
 inverted lift or a stall that never fires, not against specific handling numbers,
 which are a design decision rather than a bug. A test that fails when the game
 feels different is a test that will get deleted.
+
+`flight_analysis.gd` is deliberately outside this list: it asserts almost nothing
+and simply measures. Run it before and after a tuning change to compare envelopes.
+
+### Why `flight_regression_test.gd` exists
+
+Milestone 1's tests all passed while the aircraft could not take off. The tests
+were correct and the code was wrong: they asserted the aircraft *stayed put* on
+the ground, and it did — because the ground branch updated velocity without ever
+integrating position, so it built speed without travelling.
+
+`flight_regression_test.gd` is the answer to that class of gap. Each test names a
+defect that actually occurred, and asserts against **physics** rather than
+remembered numbers:
+
+- A 45° bank must turn at `g·tan(bank)/V` within 20%.
+- Hands-off flight must hold altitude for 30 s at three throttle settings.
+- The brakes must stop the aircraft from 30 m/s.
+- Stall must begin near the configured angle of attack.
+- Reported turn rate must match the actual heading change.
+
+Physics-derived assertions survive retuning. Asserting "turn rate is 9.9 deg/s"
+would not.
 
 ## Adding things
 
@@ -188,6 +259,12 @@ before adding a subclass.
 `FlightModel._step_in_air` or `_step_on_ground`, and refreshed in
 `FlightState.refresh()`. The HUD milestone will read it from there; no gameplay
 change is needed to display it.
+
+**Retuning flight feel** means editing `FlightTuning`, then running
+`flight_analysis.gd` before and after to see what moved. Change one thing at a
+time; several parameters interact (pitch stability and trim interact, as do
+velocity alignment and roll rate). If a change breaks a physics-derived assertion
+in `flight_regression_test.gd`, the change is wrong, not the test.
 
 **A new input action** goes in `scripts/core/generate_input_map.py`, then re-run
 that script. Do not hand-edit `project.godot`.
@@ -217,6 +294,12 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
   numerical assertions, scene instantiation. Nothing has confirmed the aircraft
   *looks* right. Expect to iterate on the airframe proportions by eye, and expect
   `AircraftProfile` to be where those fixes land.
+- **The flight model is verified against physics, not against feel.** It now turns
+  at the right rate for the right reason, but nobody has flown it. Numbers in
+  `FlightTuning` are reasoned estimates, not playtested values.
+- **Airspeed input has no lag measurement in CI.** `axis_smoothing_time` is
+  asserted to be configured, but response timing is only visible in
+  `flight_analysis.gd`.
 - **`MeshBuilder` normals carry float noise.** Face normals read back as
   `(0, 1, -0.000015)` rather than exact values. Harmless for rendering, but
   compare normals with a tolerance, as `procedural_test.gd` does.
@@ -226,3 +309,6 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
 - **No collision geometry.** The aircraft has no collider. That is correct for a
   flight model driven by terrain height, but it means flying through a mountain
   is possible until terrain milestone 3 lands.
+- **`turn_rate_degrees` is per-tick.** It is derived from one frame's heading
+  change, so it is noisy frame to frame. Averaging it over several seconds gives
+  the true rate; `flight_analysis.gd` shows the difference.

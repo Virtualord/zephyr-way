@@ -48,18 +48,27 @@ static func pitch_of(basis: Basis) -> float:
 	return rad_to_deg(asin(clampf(forward_of(basis).y, -1.0, 1.0)))
 
 
-## Signed roll in degrees, right-wing-down positive, using the aircraft's own up
-## vector projected onto the horizontal plane.
+## Signed roll in degrees, right-wing-down positive.
+##
+## Measured from the aircraft's own right and up vectors, which is the rotation
+## about its forward axis. The sign is negated because Godot's positive rotation
+## about +Z rolls left, matching the negative Z rate used in FlightModel.
+##
+## Reading this from the world-horizontal projection of the up vector instead
+## would be wrong: that approach reports a near-constant value for any banked
+## attitude, because the projected up vector always points along a single
+## horizontal direction once it has left vertical.
 static func roll_of(basis: Basis) -> float:
 	var up := basis.y
-	var horizontal := Vector2(up.x, up.z)
-	if horizontal.length_squared() < 0.000001:
-		# Looking straight up or down: fall back to the up vector's Z component so
-		# the value stays continuous instead of snapping to zero.
+	var right := basis.x
+	if absf(up.y) < ROLL_SINGULAR_EPSILON:
+		# Looking straight up or down, where roll is undefined.
 		return 0.0
-	horizontal = horizontal.normalized()
-	# +Z is aft, so an up vector leaning toward -Z means the right wing is down.
-	return rad_to_deg(atan2(-horizontal.x, -horizontal.y))
+	return rad_to_deg(-atan2(right.y, up.y))
+
+
+## Guards the atan2 in [method roll_of], where up.y passes through zero.
+const ROLL_SINGULAR_EPSILON := 0.0001
 
 
 ## Format a heading as a zero-padded three-digit compass string, e.g. "042".

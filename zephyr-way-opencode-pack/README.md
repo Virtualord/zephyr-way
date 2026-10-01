@@ -53,11 +53,22 @@ debugger. That is the main limitation to be aware of while flying.
 ```
 
 Runs whitespace checks, design JSON validation, Godot project validation, and
-229 assertions across five headless suites. Individual suites:
+272 assertions across six headless suites. Individual suites:
 
 ```bash
 godot --headless --path . --script res://tests/flight_model_test.gd
 ```
+
+There is also a flight-envelope report that asserts almost nothing and simply
+measures. Run it before and after any tuning change to see what moved:
+
+```bash
+godot --headless --path . --script res://tests/flight_analysis.gd
+```
+
+It prints take-off roll, climb rate, stall angle and recovery, turn rate against
+the theoretical `g*tan(bank)/V`, roll response, hands-off stability, and landing
+roll-out.
 
 Rebind a key by editing the table in `scripts/core/generate_input_map.py` and
 re-running it. Do not hand-edit the `[input]` section of `project.godot`.
