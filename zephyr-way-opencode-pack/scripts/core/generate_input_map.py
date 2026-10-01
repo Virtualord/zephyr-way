@@ -115,16 +115,43 @@ def render_input_section() -> str:
     return "\n".join(lines)
 
 
+def find_section_bounds(text: str, name: str) -> tuple[int, int] | None:
+    """Return the (start, end) character range of a section, or None if absent.
+
+    A section runs from its `[name]` header to the next header, so this does not
+    depend on which sections surround it. Godot rewrites project.godot whenever
+    the editor saves, dropping any section that only holds default values, so a
+    neighbouring section cannot be relied on to stay put.
+    """
+    header = f"[{name}]"
+    start = text.find(header)
+    if start < 0:
+        return None
+
+    newline = text.find("\n", start)
+    if newline < 0:
+        return (start, len(text))
+
+    tail = text[newline:]
+    for line in tail.splitlines(keepends=True):
+        if line.startswith("["):
+            return (start, newline + tail.find(line))
+    return (start, len(text))
+
+
 def main() -> None:
     text = PROJECT_FILE.read_text(encoding="utf-8")
-    end = text.index("[physics]")
 
-    # Replace an existing section if the script is re-run, otherwise insert one.
-    start = text.index("[input]") if "[input]" in text else end
+    bounds = find_section_bounds(text, "input")
+    if bounds is None:
+        # No [input] section yet: add one at the end of the file, which is where
+        # Godot places new sections anyway.
+        updated = text.rstrip("\n") + "\n\n" + render_input_section()
+    else:
+        start, end = bounds
+        updated = text[:start] + render_input_section() + text[end:]
 
-    PROJECT_FILE.write_text(
-        text[:start] + render_input_section() + text[end:], encoding="utf-8"
-    )
+    PROJECT_FILE.write_text(updated, encoding="utf-8")
     print(f"Wrote {len(ACTIONS)} input actions to {PROJECT_FILE}")
 
 
