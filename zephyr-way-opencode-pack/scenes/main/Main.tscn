@@ -1,0 +1,15 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/main/main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://scenes/world/TestEnvironment.tscn" id="2_environment"]
+[ext_resource type="PackedScene" path="res://scenes/aircraft/Aircraft.tscn" id="3_aircraft"]
+[ext_resource type="PackedScene" path="res://scenes/aircraft/ChaseCamera.tscn" id="4_camera"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+aircraft_scene = ExtResource("3_aircraft")
+chase_camera_scene = ExtResource("4_camera")
+
+[node name="TestEnvironment" parent="." instance=ExtResource("2_environment")]
+
+[node name="Aircraft" parent="." instance=ExtResource("3_aircraft")]

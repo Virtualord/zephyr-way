@@ -1,0 +1,13 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft/aircraft_controller.gd" id="1_controller"]
+[ext_resource type="Script" path="res://scripts/aircraft/flight_input.gd" id="2_input"]
+[ext_resource type="PackedScene" path="res://scenes/aircraft/AircraftVisuals.tscn" id="3_visuals"]
+
+[node name="FlightController" type="Node3D"]
+script = ExtResource("1_controller")
+
+[node name="FlightInput" type="Node" parent="."]
+script = ExtResource("2_input")
+
+[node name="Visuals" parent="." instance=ExtResource("3_visuals")]
