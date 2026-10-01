@@ -25,7 +25,7 @@ var _chase_camera: ChaseCamera
 func _ready() -> void:
 	_spawn_camera()
 	_connect_respawn()
-	print("[Zephyr Way] Milestone 1 ready. Pitch: W/S, Roll: A/D, Yaw: Q/E, Throttle: Shift/Ctrl, Airbrake: Space, Reset: R")
+	print("[Zephyr Way] Ready. Pitch: W/S, Roll: A/D, Yaw: Q/E, Throttle: Shift/Ctrl, Airbrake: Space, Reset: R")
 
 
 func _unhandled_input(event: InputEvent) -> void:

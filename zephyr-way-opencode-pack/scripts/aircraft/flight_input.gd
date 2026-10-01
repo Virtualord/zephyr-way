@@ -29,7 +29,13 @@ extends Node
 
 ## Seconds for a held digital key to travel from centre to full deflection.
 ## Gamepad input bypasses smoothing because it is already analogue.
-@export_range(0.01, 1.0, 0.01) var axis_smoothing_time: float = 0.16
+##
+## Left unset here by default so [member FlightTuning.axis_smoothing_time] is the
+## single source of truth. Assign it directly only to override tuning, e.g. in a
+## test that needs a fixed lag.
+@export_range(0.0, 1.0, 0.01) var axis_smoothing_time_override: float = 0.0
+
+var _axis_smoothing_time := 0.14
 
 ## Reused every frame so the hot path does not allocate.
 var command := FlightCommand.new()
@@ -43,12 +49,12 @@ var _throttle_is_analogue := false
 
 
 func _ready() -> void:
-	axis_smoothing_time = maxf(axis_smoothing_time, 0.01)
+	resolve_smoothing_time()
 
 
 ## Sample the InputMap and update [member command].
 func poll(delta: float) -> FlightCommand:
-	var step := delta / axis_smoothing_time
+	var step := delta / _axis_smoothing_time
 	_pitch = move_toward(_pitch, _axis(pitch_up_actions, pitch_down_actions), step)
 	_roll = move_toward(_roll, _axis(roll_right_actions, roll_left_actions), step)
 	_yaw = move_toward(_yaw, _axis(yaw_right_actions, yaw_left_actions), step)
@@ -96,6 +102,26 @@ func _throttle_rate() -> float:
 	var raise := _is_pressed(throttle_up_actions)
 	var lower := _is_pressed(throttle_down_actions)
 	return (1.0 if raise else 0.0) - (1.0 if lower else 0.0)
+
+
+## Point the smoothing time at the tuning Resource, which owns the value.
+## Called by [method _ready] and safe to call again after assigning `tuning`.
+func resolve_smoothing_time() -> void:
+	if axis_smoothing_time_override > 0.0:
+		_axis_smoothing_time = axis_smoothing_time_override
+	elif tuning != null:
+		_axis_smoothing_time = tuning.axis_smoothing_time
+	_axis_smoothing_time = maxf(_axis_smoothing_time, 0.01)
+
+
+## Active smoothing time in seconds.
+func axis_smoothing_time() -> float:
+	return _axis_smoothing_time
+
+
+## Flight tuning, consulted for [member axis_smoothing_time]. Optional so the
+## input layer can be tested on its own.
+var tuning: FlightTuning
 
 
 ## Absolute throttle position from a gamepad trigger, or [constant
