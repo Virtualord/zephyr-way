@@ -1,0 +1,2 @@
+; Godot must not import these reference screenshots as game textures.
+; They are inspiration material only (see reference/README.md).
