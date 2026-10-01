@@ -1,0 +1,15 @@
+{
+  "missions": [
+    {
+      "id": "first-flight",
+      "title": "First Flight",
+      "objectives": [
+        {"type": "takeoff", "target": "airport"},
+        {"type": "checkpoint", "target": "checkpoint_01"},
+        {"type": "checkpoint", "target": "checkpoint_02"},
+        {"type": "visit_landmark", "target": "coastal_lighthouse"},
+        {"type": "land", "target": "airport"}
+      ]
+    }
+  ]
+}

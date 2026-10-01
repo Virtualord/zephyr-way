@@ -1,0 +1,18 @@
+{
+  "style": "stylized_low_poly",
+  "geometry": {
+    "detail_level": "low",
+    "silhouette_priority": "high",
+    "faceting": "visible_but_clean"
+  },
+  "materials": {
+    "surface_complexity": "simple",
+    "texture_dependency": "low"
+  },
+  "composition": {
+    "landmark_readability": "high",
+    "foreground_density": 0.45,
+    "midground_density": 0.6,
+    "background_density": 0.3
+  }
+}

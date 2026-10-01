@@ -1,0 +1,25 @@
+{
+  "hud": {
+    "layout": "minimal_flight_overlay",
+    "panels": {
+      "mission": {
+        "position": "top_left",
+        "width": 320,
+        "opacity": 0.82
+      },
+      "flight_data": {
+        "position": "bottom"
+      }
+    },
+    "elements": {
+      "airspeed": {"priority": "high", "size": 28},
+      "altitude": {"priority": "high", "size": 24},
+      "heading": {"priority": "medium", "size": 24},
+      "throttle": {"priority": "medium", "size": 18}
+    },
+    "style": {
+      "corner_radius": 8,
+      "spacing": 12
+    }
+  }
+}

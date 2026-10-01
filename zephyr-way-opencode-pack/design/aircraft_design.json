@@ -1,0 +1,28 @@
+{
+  "aircraft": {
+    "style": "small_light_sport_aircraft",
+    "dimensions_meters": {
+      "length": 8.2,
+      "wingspan": 10.6,
+      "height": 2.8
+    },
+    "proportions": {
+      "fuselage_width": 0.9,
+      "wing_area": 18.0,
+      "tail_scale": 0.72
+    },
+    "visual": {
+      "primary_color": "#E9E3D0",
+      "secondary_color": "#394B5A",
+      "accent_color": "#E58C5A"
+    },
+    "flight": {
+      "max_speed_knots": 145,
+      "cruise_speed_knots": 110,
+      "acceleration": 24.0,
+      "roll_rate": 1.8,
+      "pitch_rate": 1.2,
+      "yaw_rate": 0.7
+    }
+  }
+}

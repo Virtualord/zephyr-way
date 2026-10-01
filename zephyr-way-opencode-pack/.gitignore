@@ -1,0 +1,19 @@
+.godot/
+export/
+build/
+*.tmp
+*.bak
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local/reference media that should not bloat Git history
+reference/raw/
+reference/*.mp4
+reference/*.mov
+reference/*.webm
+
+# Local exports/logs
+*.log

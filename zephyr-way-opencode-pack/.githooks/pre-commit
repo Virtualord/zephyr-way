@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+echo "[Zephyr Way] Running lightweight pre-commit checks..."
+
+git diff --cached --check
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 - <<'PY'
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+files = subprocess.check_output(
+    ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+    text=True,
+).splitlines()
+
+failed = False
+for name in files:
+    if name.endswith(".json"):
+        path = Path(name)
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"Invalid JSON: {name}: {exc}")
+            failed = True
+
+if failed:
+    sys.exit(1)
+PY
+fi
+
+echo "[Zephyr Way] Pre-commit checks passed."

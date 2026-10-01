@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+MSG_FILE="$1"
+MSG=$(sed -n '/^[^#]/p' "$MSG_FILE" | head -n 1 || true)
+
+# Allow merge/revert commits created by Git itself.
+case "$MSG" in
+  Merge\ *|Revert\ *) exit 0 ;;
+esac
+
+# Conventional Commit: type(scope): summary OR type: summary
+# Scope is optional; breaking marker is allowed in the type/scope area.
+if ! printf '%s\n' "$MSG" | grep -Eq '^(feat|fix|refactor|perf|design|test|docs|chore|build|ci|style|revert)(\([a-z0-9._/-]+\))?!?: .{1,72}$'; then
+  echo "Invalid commit message. Use Conventional Commits, for example:" >&2
+  echo "  feat(aircraft): add arcade flight controller" >&2
+  echo "  fix(world): prevent props spawning in water" >&2
+  exit 1
+fi

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "compaction": {
+    "auto": true,
+    "prune": false
+  },
+  "permission": {
+    "skill": {
+      "*": "allow"
+    }
+  },
+  "agent": {
+    "architect": {
+      "description": "Plans Zephyr Way architecture and milestones without editing files.",
+      "mode": "subagent",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "visual-designer": {
+      "description": "Reviews and specifies Zephyr Way's visual design, procedural art, composition, lighting, shaders, and UI without editing files.",
+      "mode": "subagent",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "reviewer": {
+      "description": "Reviews code for Godot correctness, regressions, architecture, and maintainability without editing files.",
+      "mode": "subagent",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "performance-reviewer": {
+      "description": "Reviews Zephyr Way for CPU, GPU, memory, rendering, physics, and loading risks without editing files.",
+      "mode": "subagent",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "autopilot": {
+      "description": "Autonomous Zephyr Way developer: plan, implement, test, review, commit, and integrate local milestones with minimal user intervention.",
+      "mode": "primary",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git reset --hard*": "deny",
+          "git clean -fd*": "deny",
+          "git clean -df*": "deny",
+          "git clean -dxf*": "deny",
+          "git rebase*": "deny"
+        },
+        "task": "allow",
+        "question": "deny",
+        "doom_loop": "allow",
+        "skill": "allow"
+      }
+    }
+  },
+  "default_agent": "autopilot",
+  "subagent_depth": 2
+}

@@ -1,0 +1,164 @@
+{
+  "schema_version": "1.0.0",
+  "file": "color_palette",
+  "color_format": "srgb_hex_rrggbb",
+  "reference_syntax": "$group.name",
+  "rules": {
+    "saturation_range": [0.32, 0.78],
+    "value_range": [0.42, 0.95],
+    "darkest_allowed": "#14173A",
+    "lightest_allowed": "#FFFDF8",
+    "pure_black_allowed": false,
+    "pure_white_allowed": false,
+    "shadow_hue_target_deg": 255,
+    "shadow_hue_shift_deg": 18,
+    "highlight_hue_target_deg": 42,
+    "highlight_hue_shift_deg": -8,
+    "accent_area_max_fraction": 0.10,
+    "island_signature_accent_max_fraction": 0.18,
+    "min_contrast_ratio_aircraft_vs_ocean": 3.0,
+    "min_contrast_ratio_aircraft_vs_land": 2.4,
+    "per_face_jitter": { "value": 0.035, "hue_deg": 4.0, "saturation": 0.03 }
+  },
+  "groups": {
+    "ink": {
+      "night": "#14173A", "shadow": "#1B1F3B", "shadow_violet": "#3A3566",
+      "ivory": "#FFF7E8", "paper": "#F6EBD4", "mist": "#E9F1F6"
+    },
+    "ocean": {
+      "abyss": "#062B57", "deep": "#0A4F8F", "mid": "#1CA7C6", "shallow": "#47D6CF",
+      "lagoon": "#7FF0D8", "foam": "#F4FFFB", "wet_edge": "#CDEFE6", "lake": "#3FD0B0",
+      "river": "#4CC3D8", "falls": "#EAFBFF"
+    },
+    "sand": {
+      "dry": "#F2DDA8", "wet": "#D9BE86", "pebble": "#B9A98E", "black": "#4A4458", "coral": "#F3C7A6"
+    },
+    "grass": {
+      "lush": "#7CC857", "meadow": "#9ED45E", "dry": "#C9C65E", "golden": "#E0B94F",
+      "moss": "#4E9E5A", "highland": "#8AA85A", "lawn_airport": "#8FD068"
+    },
+    "forest": {
+      "pine_dark": "#245C4A", "pine": "#2F7A55", "pine_light": "#4A9A5E", "broadleaf": "#5DAE4F",
+      "broadleaf_warm": "#8AB84A", "autumn": "#E08A3C", "palm": "#3FA25F", "shrub": "#5A9A4E",
+      "blossom": "#F2A0B8", "trunk": "#7A5638", "trunk_dark": "#5E3F2C"
+    },
+    "rock": {
+      "warm_grey": "#8E8A94", "cool_grey": "#6C7288", "dark": "#4A4A5E", "sandstone": "#C9976A",
+      "sandstone_light": "#E2B98A", "volcanic": "#5B4452", "basalt": "#3C3F55", "ember": "#FF6A3D",
+      "chalk": "#E8E2D4", "mesa_rust": "#B8663F"
+    },
+    "snow": { "top": "#F4F7FF", "shade": "#C9D4EE" },
+    "earth": {
+      "soil": "#8C6A4A", "ochre": "#D9A24A", "field_green": "#8FCB5A", "field_teal": "#4FA88A",
+      "field_rust": "#C0643C", "field_lavender": "#A890D0", "field_gold": "#E8C45A", "tilled": "#7A5A45"
+    },
+    "road": {
+      "asphalt": "#3A3F52", "dirt": "#B08A62", "marking": "#F6EBD4", "runway": "#353A4E",
+      "runway_stripe": "#F6EBD4", "apron": "#4B516A", "stone": "#A9A59A"
+    },
+    "building": {
+      "wall_cream": "#F2E2C4", "wall_white": "#F7F3EA", "wall_coral": "#F0856A", "wall_teal": "#4FA8A6",
+      "wall_butter": "#F4D27A", "wall_rose": "#E8A5A0", "wall_stone": "#B8B0A4", "wall_sky": "#8CBCE0",
+      "roof_terracotta": "#C8553D", "roof_slate": "#4D5A78", "roof_teal": "#2F7F86", "roof_ochre": "#C98A3A",
+      "roof_plum": "#7A4A6E", "roof_thatch": "#B89A5E", "trim": "#FFFDF6", "window_day": "#9CCFE8",
+      "window_lit": "#FFC866", "door": "#7A4E34", "wood": "#9A6B45", "wood_dark": "#5E3F2C",
+      "metal": "#8D97AE", "metal_dark": "#454B63", "canvas": "#EADFC8"
+    },
+    "boat": {
+      "hull_white": "#F6EBD4", "hull_navy": "#23386B", "hull_red": "#D9503F", "hull_green": "#2F7F5A",
+      "hull_yellow": "#F2C14E", "sail": "#FFF7E8", "sail_coral": "#FF8A6B", "deck": "#9A6B45"
+    },
+    "cargo": {
+      "red": "#D9503F", "blue": "#3F73C8", "yellow": "#F2C14E", "green": "#3F9A6A",
+      "orange": "#F28A3C", "grey": "#A9B0C0"
+    },
+    "accent": {
+      "coral": "#FF6B4A", "sun": "#FFC93C", "teal": "#1F7F8C", "aqua": "#4FE0D2", "magenta": "#E04A8F",
+      "violet": "#7A5FD0", "lamp_warm": "#FFB347", "lamp_cool": "#9FE8FF", "beacon_red": "#FF3D4F",
+      "beacon_green": "#3DFF9A", "gate_glow": "#7DF2E6"
+    },
+    "aircraft": {
+      "cream": "#F6EBD4", "coral": "#FF6B4A", "teal": "#1F7F8C", "teal_dark": "#16545E", "sun": "#FFC93C",
+      "charcoal": "#2B3144", "tire": "#1E2233", "hub": "#E8DFC8", "glass": "#BFE9F5", "jacket": "#D9A441",
+      "scarf": "#FFC93C", "helmet": "#8A5A3C", "goggle": "#9FE3EE", "prop": "#2E3347", "mailbag": "#FF6B4A"
+    },
+    "cloud": {
+      "day_top": "#FFFDF8", "day_bottom": "#C9D6EE", "gold_top": "#FFE3B8", "gold_bottom": "#B89AC8",
+      "dusk_top": "#FFB3A0", "dusk_bottom": "#6A4A8E", "night_top": "#6A74B8", "night_bottom": "#2A2F66"
+    },
+    "ui": {
+      "text": "#FFF7E8", "text_secondary": "#C9D4EE", "text_dim": "#8C9AC0", "accent": "#FFC93C",
+      "accent_alt": "#FF6B4A", "info": "#6FE0E8", "success": "#7DE08A", "warn": "#FFB347",
+      "danger": "#FF6B6B", "panel": "#0E1A33", "panel_border": "#FFF7E8", "gate": "#7DF2E6",
+      "objective": "#FFC93C", "sight": "#FF9EC0"
+    }
+  },
+  "ramps": {
+    "ocean_depth": [
+      { "depth_m": 0.0, "color": "$ocean.lagoon" },
+      { "depth_m": 2.0, "color": "$ocean.shallow" },
+      { "depth_m": 10.0, "color": "$ocean.mid" },
+      { "depth_m": 35.0, "color": "$ocean.deep" },
+      { "depth_m": 90.0, "color": "$ocean.abyss" }
+    ],
+    "seabed_by_depth": [
+      { "depth_m": 0.0, "color": "$sand.wet" },
+      { "depth_m": 12.0, "color": "$sand.pebble" },
+      { "depth_m": 45.0, "color": "$rock.cool_grey" }
+    ]
+  },
+  "weighted_sets": {
+    "building_wall": [
+      { "color": "$building.wall_cream", "weight": 0.24 }, { "color": "$building.wall_white", "weight": 0.18 },
+      { "color": "$building.wall_coral", "weight": 0.12 }, { "color": "$building.wall_teal", "weight": 0.10 },
+      { "color": "$building.wall_butter", "weight": 0.14 }, { "color": "$building.wall_rose", "weight": 0.08 },
+      { "color": "$building.wall_stone", "weight": 0.08 }, { "color": "$building.wall_sky", "weight": 0.06 }
+    ],
+    "building_roof": [
+      { "color": "$building.roof_terracotta", "weight": 0.34 }, { "color": "$building.roof_slate", "weight": 0.20 },
+      { "color": "$building.roof_teal", "weight": 0.16 }, { "color": "$building.roof_ochre", "weight": 0.14 },
+      { "color": "$building.roof_plum", "weight": 0.08 }, { "color": "$building.roof_thatch", "weight": 0.08 }
+    ],
+    "foliage_conifer": [
+      { "color": "$forest.pine_dark", "weight": 0.35 }, { "color": "$forest.pine", "weight": 0.40 },
+      { "color": "$forest.pine_light", "weight": 0.25 }
+    ],
+    "foliage_broadleaf": [
+      { "color": "$forest.broadleaf", "weight": 0.55 }, { "color": "$forest.broadleaf_warm", "weight": 0.28 },
+      { "color": "$forest.autumn", "weight": 0.05 }, { "color": "$forest.blossom", "weight": 0.04 },
+      { "color": "$grass.moss", "weight": 0.08 }
+    ],
+    "field_cycle": [
+      { "color": "$earth.field_green", "weight": 0.26 }, { "color": "$earth.field_gold", "weight": 0.22 },
+      { "color": "$earth.field_teal", "weight": 0.14 }, { "color": "$earth.field_rust", "weight": 0.12 },
+      { "color": "$earth.field_lavender", "weight": 0.10 }, { "color": "$earth.tilled", "weight": 0.10 },
+      { "color": "$grass.meadow", "weight": 0.06 }
+    ],
+    "boat_hull": [
+      { "color": "$boat.hull_white", "weight": 0.30 }, { "color": "$boat.hull_navy", "weight": 0.22 },
+      { "color": "$boat.hull_red", "weight": 0.20 }, { "color": "$boat.hull_green", "weight": 0.14 },
+      { "color": "$boat.hull_yellow", "weight": 0.14 }
+    ],
+    "container": [
+      { "color": "$cargo.red", "weight": 0.22 }, { "color": "$cargo.blue", "weight": 0.22 },
+      { "color": "$cargo.yellow", "weight": 0.16 }, { "color": "$cargo.green", "weight": 0.16 },
+      { "color": "$cargo.orange", "weight": 0.14 }, { "color": "$cargo.grey", "weight": 0.10 }
+    ],
+    "wildflower": [
+      { "color": "$accent.sun", "weight": 0.30 }, { "color": "$forest.blossom", "weight": 0.25 },
+      { "color": "$ink.ivory", "weight": 0.25 }, { "color": "$accent.violet", "weight": 0.20 }
+    ],
+    "buoy": [
+      { "color": "$accent.coral", "weight": 0.35 }, { "color": "$accent.sun", "weight": 0.35 },
+      { "color": "$ink.ivory", "weight": 0.30 }
+    ]
+  },
+  "liveries": [
+    { "id": "sunrise_coral", "body": "$aircraft.cream", "wing_top": "$aircraft.coral", "cowl": "$aircraft.teal", "fin": "$aircraft.coral", "stripe": "$aircraft.sun", "belly": "$aircraft.teal_dark", "spinner": "$aircraft.sun" },
+    { "id": "tidewater", "body": "#E6F4F6", "wing_top": "#1F7F8C", "cowl": "#16545E", "fin": "#1F7F8C", "stripe": "#FFC93C", "belly": "#16545E", "spinner": "#FF6B4A" },
+    { "id": "meadowlark", "body": "#F6EBD4", "wing_top": "#4E9E5A", "cowl": "#245C4A", "fin": "#4E9E5A", "stripe": "#FFC93C", "belly": "#245C4A", "spinner": "#F6EBD4" },
+    { "id": "dusk_plum", "body": "#E9DDF0", "wing_top": "#7A5FD0", "cowl": "#3A3566", "fin": "#7A5FD0", "stripe": "#FF9EC0", "belly": "#3A3566", "spinner": "#FFC93C" },
+    { "id": "saffron_mail", "body": "#FFF1C9", "wing_top": "#F2A93C", "cowl": "#C8553D", "fin": "#F2A93C", "stripe": "#C8553D", "belly": "#C8553D", "spinner": "#FFF1C9" },
+    { "id": "midnight_gold", "body": "#2B3144", "wing_top": "#FFC93C", "cowl": "#14173A", "fin": "#FFC93C", "stripe": "#F6EBD4", "belly": "#14173A", "spinner": "#FFC93C" }
+  ]
+}

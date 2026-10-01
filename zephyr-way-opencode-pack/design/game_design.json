@@ -1,0 +1,18 @@
+{
+  "title": "Zephyr Way",
+  "genre": "stylized_arcade_flight_exploration",
+  "player_experience": [
+    "relaxed_exploration",
+    "responsive_flight",
+    "discovering_landmarks",
+    "light_mission_objectives"
+  ],
+  "initial_vertical_slice": {
+    "duration_minutes": 5,
+    "aircraft_count": 1,
+    "island_count": 1,
+    "airport_count": 1,
+    "landmark_count": 1,
+    "mission_count": 1
+  }
+}

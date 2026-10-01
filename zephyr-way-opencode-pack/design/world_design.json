@@ -1,0 +1,35 @@
+{
+  "world": {
+    "size_meters": 5000,
+    "theme": "coastal_mountain_island"
+  },
+  "terrain": {
+    "mountain_count": 4,
+    "max_elevation_meters": 650,
+    "valley_count": 3,
+    "coastline_complexity": 0.7
+  },
+  "water": {
+    "coverage_ratio": 0.72
+  },
+  "airport": {
+    "position": {"x": -850, "z": 420},
+    "runway_heading_degrees": 72,
+    "runway_length_meters": 850
+  },
+  "landmarks": [
+    {
+      "id": "coastal_lighthouse",
+      "type": "lighthouse",
+      "position": {"x": 1400, "z": -700},
+      "importance": "high"
+    }
+  ],
+  "villages": [
+    {
+      "id": "river_village",
+      "position": {"x": 200, "z": 800},
+      "house_count": 18
+    }
+  ]
+}
