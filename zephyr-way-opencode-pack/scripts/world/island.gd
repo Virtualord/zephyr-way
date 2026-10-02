@@ -16,14 +16,28 @@ extends Node3D
 ## Distance in metres within which chunks are built at full detail.
 @export_range(200.0, 4000.0, 50.0) var detail_distance := 1100.0
 
-## Extent of the sea plane, in metres. Must exceed the island radius so the
-## horizon is water rather than an edge.
-@export var sea_extent := 6000.0
+## How far the sea plane reaches, in multiples of the island radius.
+##
+## The sea has to reach the edge of the built terrain, not merely the shoreline.
+## Everything outside the chunk grid is absent geometry, so a sea plane that stops
+## short of it leaves a hard rectangular edge in the world with sky showing through
+## behind -- invisible from the ground, where the sea fills the horizon anyway, and
+## glaring from the air. Measured: the grid reached 3000 m and the sea plane also
+## stopped at 3000 m, and the aerial view showed the island as a slab floating in
+## sky.
+##
+## Beyond the terrain's own edge the seabed keeps going -- `height_at()` returns
+## water indefinitely -- so the plane is what has to cover the gap, and it has to be
+## generous because it is also the horizon when flying.
+@export_range(2.0, 20.0, 0.5) var sea_extent_factor := 8.0
 @export var sea_color := Color("#1CA7C6")
 @export var sea_deep_color := Color("#0A4F8F")
 
-## Distance at which coarse chunks fade out, in metres.
-@export_range(1000.0, 8000.0, 100.0) var visibility_range := 3600.0
+## Distance at which terrain chunks fade out, in metres.
+##
+## Must exceed the grid's own half-extent, or chunks disappear while the camera can
+## still see them.
+@export_range(1000.0, 20000.0, 100.0) var visibility_range := 6000.0
 
 ## Chunks built per frame while filling in.
 ##
@@ -137,11 +151,18 @@ func _build_chunk(origin: Vector2, focus: Vector2) -> void:
 
 ## Key identifying a chunk at a given detail level.
 ##
-## The detail is part of the key so both versions can coexist during a rebuild
-## without one overwriting the other.
-func _key_for(origin: Vector2, near: bool) -> int:
-	var detail := 1 if near else 0
-	return (int(origin.x) * 73856093) ^ (int(origin.y) * 19349663) ^ (detail * 83492791)
+## A String, not a hash of the coordinates.
+##
+## The previous key was `x * 73856093 ^ y * 19349663`, which collides on symmetric
+## positions: `(3000, -1000)` and `(-3000, 1000)` both hash to the same value, so
+## one chunk silently overwrote another and the build stopped at 246 of 289 with an
+## empty queue and no error. Nothing reported it — `built_chunk_count()` was simply
+## smaller than the grid, and the missing chunks were holes in the world.
+##
+## A string key cannot collide, and the cost is irrelevant at this scale: it is
+## computed a few hundred times when the focus moves.
+func _key_for(origin: Vector2, near: bool) -> String:
+	return "%d_%d_%s" % [int(origin.x), int(origin.y), "n" if near else "f"]
 
 
 ## Shared terrain material.
@@ -170,8 +191,15 @@ var _terrain_material_cache: StandardMaterial3D
 ## A simple two-tone gradient by depth rather than a shader: milestone 04 owns the
 ## stylized ocean, and this only needs to read as water and provide a horizon.
 func _build_sea() -> void:
+	# Sized from the island rather than set, so growing the island cannot leave the
+	# sea short of the terrain. Subdivided as well, because a 32 km plane built from
+	## two triangles has no vertices to bend for a horizon, and its single huge quad
+	# is where precision problems show up first.
+	var extent := generator.island_radius * sea_extent_factor
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(sea_extent, sea_extent)
+	plane.size = Vector2(extent, extent)
+	plane.subdivide_width = 8
+	plane.subdivide_depth = 8
 
 	_sea = MeshInstance3D.new()
 	_sea.name = "Sea"
@@ -192,6 +220,10 @@ func _sea_material() -> StandardMaterial3D:
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color.a = 0.82
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# No per-material fog toggle here: fog is a WorldEnvironment setting in Godot, not
+	# a material property, and `fog_enabled` does not exist on BaseMaterial3D. The sea
+	# is fogged by the same depth fog as the terrain, which is what makes the water
+	# recede into the haze at the horizon rather than staying a flat blue slab.
 	return material
 
 

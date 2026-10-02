@@ -30,7 +30,12 @@ const LOD_DISTANCE := 900.0
 
 ## Extra chunks beyond the island's edge, so the horizon is water rather than the
 ## edge of the terrain.
-const SEA_BORDER_CHUNKS := 2
+##
+## Enough to push the grid's boundary past where the camera can see it. A grid that
+## ends inside the view frustum reads as a hard rectangular edge with sky behind it,
+## which is invisible from the ground and glaring from the air. The grid's *corners*
+## reach `half_extent * sqrt(2)`, so the border is measured against that.
+const SEA_BORDER_CHUNKS := 4
 
 var generator: TerrainGenerator
 
@@ -53,10 +58,16 @@ func grid_chunks() -> int:
 	return _grid_chunks
 
 
+## Half-extent of the built terrain, in metres.
+func grid_extent() -> float:
+	return float(_grid_chunks) * CHUNK_SIZE
+
+
 func _build_origin_cache() -> void:
-	# Enough chunks to reach the island's land, plus a sea border. A fixed count was
-	# wrong twice over: too small for a larger island, which left the shoreline
-	# unbuilt, and larger than needed for a smaller one, which built a lot of ocean.
+	# Enough chunks to reach the island's land, plus a border that keeps the grid's
+	# edge out of sight. A fixed count was wrong twice over: too small for a larger
+	# island, which left the shoreline unbuilt, and larger than needed for a smaller
+	# one, which built a lot of ocean.
 	_grid_chunks = int(ceil(generator.island_radius / CHUNK_SIZE)) + SEA_BORDER_CHUNKS
 	_origins = []
 	for x in range(-_grid_chunks, _grid_chunks + 1):
