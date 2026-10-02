@@ -15,7 +15,26 @@ extends Node3D
 @export_range(0.0, 360.0, 1.0) var sun_yaw_degrees := 118.0
 ## Sun elevation. Low, so shadows are long and the terrain reads as relief.
 @export_range(-10.0, 80.0, 0.5) var sun_elevation_degrees := 22.0
-@export var sun_energy := 1.25
+## Directional light strength.
+##
+## Set by measurement, not by eye, against the terrain's own vertex colours.
+##
+## The terrain mesh carries the palette exactly — a massif body reads 575a6e, which is
+## rock.dark lerped toward rock.cool_grey — and that was confirmed by reading the mesh
+## buffers directly. The paleness was entirely this light: at 1.25 a lit rock face
+## rendered roughly 4.7x its linear albedo, so the mountains were being lit as though
+## they were snow, and every face read near-white.
+##
+## An A/B render of the same viewpoint with each lighting factor isolated
+## (tests/ab_lighting.gd) put the cause beyond doubt: with fog off the image is
+## unchanged, with ambient off the image is unchanged, and with the sun off the
+## mountains drop to their correct dark purple. The sun was the whole of it.
+##
+## So the level is set by what the sun alone does to the terrain, which is why cutting
+## it from 1.25 to 0.55 was not enough — the mountains were still several times their
+## albedo. Deliberately not 1.0: the palette is the colour of a *lit* face, and a
+## face turned away from the sun should still be darker than its swatch.
+@export var sun_energy := 0.32
 @export var sun_color := Color(1.0, 0.88, 0.74)
 
 ## Sky gradient. The palette's dusk set, warmed slightly near the horizon.
@@ -128,10 +147,11 @@ func _build_environment() -> void:
 	# Scaled down rather than left at full strength. The sky is bright, and full sky
 	# ambient fills every shadow until the faceting that makes low-poly terrain read
 	# disappears into a flat wash. Enough fill to keep shadowed faces coloured, not
-	# enough to erase the difference between them.
+	# enough to erase the difference between them. Set together with sun_energy for
+	# the same reason: see the note there.
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	environment.ambient_light_sky_contribution = 1.0
-	environment.ambient_light_energy = 0.45
+	environment.ambient_light_energy = 0.25
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 
 	environment.fog_enabled = true

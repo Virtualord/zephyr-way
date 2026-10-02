@@ -3,10 +3,11 @@
 #
 #   1. Git whitespace
 #   2. Design JSON validity
-#   3. Godot editor/headless project validation
-#   4. Headless test suites
+#   3. Test suite await audit
+#   4. Godot editor/headless project validation
+#   5. Headless test suites
 #
-# Step 3 needs care: `godot --editor --quit` exits 0 even when scripts fail to
+# Step 4 needs care: `godot --editor --quit` exits 0 even when scripts fail to
 # parse, so its output is captured and inspected instead of trusting the exit
 # code. See NOTES.md for the full list of ignored messages.
 #
@@ -35,10 +36,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "[1/4] Git whitespace check"
+echo "[1/5] Git whitespace check"
 git diff --check
 
-echo "[2/4] Design JSON validation"
+echo "[2/5] Design JSON validation"
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -55,7 +56,14 @@ for path in sorted(Path("design").rglob("*.json")):
 raise SystemExit(1 if failed else 0)
 PY
 
-echo "[3/4] Godot headless project/editor validation"
+# A test helper containing `await` but called without one suspends and returns
+# immediately, so every assertion after that await silently never runs. scene_test.gd
+# had exactly this and reported 37 passing checks when it should have reported 40 --
+# indistinguishable from a suite that genuinely passes.
+echo "[3/5] Test suite await audit"
+python3 scripts/audit_test_awaits.py
+
+echo "[4/5] Godot headless project/editor validation"
 status=0
 
 # The editor pass forces a full script and resource import, which is the only thing
@@ -86,7 +94,7 @@ if [ "$status" -ne 0 ]; then
 fi
 echo "OK project validation"
 
-echo "[4/4] Headless test suites"
+echo "[5/5] Headless test suites"
 GODOT_BIN="$GODOT_BIN" ./scripts/run_tests.sh
 
 echo
