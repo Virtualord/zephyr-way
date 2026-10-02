@@ -42,24 +42,47 @@ func build() -> ArrayMesh:
 
 
 ## One triangle with a flat face normal and a single colour.
+##
+## The vertices are emitted as a, c, b -- reversed from the order the normal is derived
+## from. That is not a detail. Godot treats a triangle as front-facing when its corners
+## run **clockwise** on screen, while the right-hand rule says the cross product
+## (b - a) x (c - a) points out of a triangle wound counter-clockwise as seen from that
+## side. Emitting a, b, c therefore makes every outward-facing surface a *back* face.
+##
+## The symptom is not missing geometry. A convex solid still draws, because the eye sees
+## the inside of its far wall instead of the outside of its near wall, at almost the same
+## depth and with a perfectly good stored normal -- so it looks right. It only breaks
+## where two surfaces meet: the runway's underside is coplanar with the plateau at
+## exactly 14.000 m, so once the real top face was culled away, its underside and the
+## terrain z-fought each other and the runway came out torn. Raising the pavement moved
+## the top face and left the underside exactly where it was, which is why that changed
+## nothing at all.
+##
+## Confirmed by measurement, not by reading: tests/isolate_runway.gd puts a quad wound
+## each way beside the runway and reads which one survives CULL_BACK.
 func triangle(a: Vector3, b: Vector3, c: Vector3, color: Color) -> void:
 	var normal := (b - a).cross(c - a)
 	if normal.is_zero_approx():
 		return
 	normal = normal.normalized()
-	_tool.set_color(color)
+	# Normal first, then the three corners in reversed order. See above.
 	_tool.set_normal(normal)
+	_tool.set_color(color)
 	_tool.add_vertex(a)
-	_tool.set_color(color)
 	_tool.set_normal(normal)
-	_tool.add_vertex(b)
 	_tool.set_color(color)
-	_tool.set_normal(normal)
 	_tool.add_vertex(c)
+	_tool.set_normal(normal)
+	_tool.set_color(color)
+	_tool.add_vertex(b)
 	_triangles += 1
 
 
-## A quad as two triangles, wound a-b-c-d.
+## A quad as two triangles, given a-b-c-d.
+##
+## The order is the one the face normal is derived from; [method triangle] reverses it
+## on the way into the buffer so the emitted winding is clockwise, which is what Godot
+## counts as front-facing.
 func quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color) -> void:
 	triangle(a, b, c, color)
 	triangle(a, c, d, color)
