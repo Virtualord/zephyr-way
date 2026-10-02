@@ -511,6 +511,51 @@ and the footprint was sampled one 25 m step from the corner of each 500 m chunk 
 than across it. With both fixed it reports zero, and a direct comparison of mesh
 vertices against `height_at` at the same coordinates agrees to 0.0 m.
 
+## Milestone 05 — airport and landmark (in progress)
+
+### Built structures are merged, coloured in the vertex stream
+
+`StructureBuilder` accumulates coloured primitives into one flat-shaded `ArrayMesh`.
+Colour goes into the vertices rather than onto a material, which is the whole reason
+merging is worth it: a banded lighthouse tower and a marked runway are the same draw
+call. The airport is four meshes and the lighthouse two.
+
+One deliberate exception: the lighthouse's lantern is a separate mesh with its own
+emissive material, because it has to glow at dusk and everything else does not. That is
+the only place a second draw call is spent on purpose.
+
+### The runway renders torn, and I do not know why
+
+**Open. Not fixed. Do not call this milestone done on the strength of the tests.**
+
+From above, the runway renders as torn fragments rather than a strip. What has been
+established, and what has been ruled out:
+
+- *Not the mesh.* With the terrain hidden the runway renders solid and continuous, and
+  its bounding box is the full 46 x 850 m. Every triangle is present.
+- *Not the terrain.* All 507 chunk-mesh vertices inside the runway footprint sit at
+  exactly 14.000 m, matching `height_at`, and the runway is above them.
+- *Not depth precision.* Raising the pavement from 0.35 m to 3.0 m and then to 12.0 m
+  produced a **pixel-identical** image each time. An occlusion or depth problem cannot
+  behave that way.
+- *Not the triangle size.* Subdividing the slab from two triangles to 24 segments
+  changed nothing.
+- *Not the winding, as far as the suite can tell.* `structure_test.gd` measures 330
+  upward faces on the runway and every one points up.
+- *It is culling.* Setting the runway material to `CULL_DISABLED` renders it complete
+  and correct: centreline, threshold bars, aim points, edge lines, apron, buildings and
+  approach lights all present.
+
+So the geometry is right, the normals are right, and back-face culling still removes
+part of it. `CULL_DISABLED` masks the symptom and doubles the fill cost, and shipping it
+as a "fix" would be exactly the unverified workaround this project does not accept. The
+camera's near plane was raised from Godot's 0.05 m default as a genuine, separately
+measured improvement, but it is not the cause: the tearing survived that change too.
+
+What would settle it: rendering the runway mesh alone from this viewpoint with a
+wireframe or single-sided override and comparing triangle by triangle against the
+culled render.
+
 ## Known rough edges
 
 - **The aircraft has still never been flown by hand.** Everything below about the flight
