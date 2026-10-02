@@ -58,26 +58,18 @@ PY
 echo "[3/4] Godot headless project/editor validation"
 status=0
 
-# `project.godot` is preserved across the editor pass, then restored.
+# The editor pass forces a full script and resource import, which is the only thing
+# that catches parse errors in files no test suite loads. It is kept for that.
 #
-# Godot rewrites this file whenever it opens the project, replacing the
-# hand-written header and deleting any section it considers empty -- including
-# `[autoload]`, which is deliberately empty and documented as such. That produced
-# an uncommitted diff on every single verification run, which is the worst kind of
-# noise: it looks like a change someone meant to make.
-#
-# The editor pass is kept because it is the only thing that forces a full script
-# and resource import, which is what actually catches parse errors in files that no
-# test suite loads.
-PROJECT_FILE="$ROOT/project.godot"
-PROJECT_BACKUP="${TMPDIR:-/tmp}/zephyr-way-project.$$.godot"
-cp "$PROJECT_FILE" "$PROJECT_BACKUP"
-
+# An earlier version of this script backed `project.godot` up and restored it around
+# this step, on the belief that Godot rewrites the file here and so every run produced
+# an uncommitted diff. That belief could not be reproduced: a cold cache plus an editor
+# launch, a cold cache plus the full suite, and repeated launches all leave the file
+# byte-identical. The restore was removed because it silently discarded any real edit
+# to `project.godot` made between the backup and the restore, which is worse than the
+# problem it was solving. If that diff ever reappears, `git diff project.godot` will
+# show exactly what moved.
 "$GODOT_BIN" --headless --path "$ROOT" --editor --quit >"$LOG" 2>&1 || status=$?
-
-# Restore before anything else, so a failure below still leaves a clean tree.
-cp "$PROJECT_BACKUP" "$PROJECT_FILE"
-rm -f "$PROJECT_BACKUP"
 
 # Parse and compile errors are the real signal. The engine also reports leak
 # warnings at exit, which say nothing about correctness here.
