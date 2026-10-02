@@ -70,6 +70,16 @@ func _ready() -> void:
 	# rather than as a clipping plane. Set past the fog's full density so the water
 	# fades out before it can be cut.
 	far = visibility_range
+	# And the default near plane, which is 0.05 m. Paired with the far plane above that
+	# is a 400,000:1 depth range, and the precision that leaves is not enough to keep
+	# anything sitting a few tens of centimetres above the ground in front of it: the
+	# runway pavement lost the depth test over most of its length and rendered as torn
+	# fragments, while the same geometry was solid from any other angle.
+	#
+	# One metre is comfortably closer than this camera ever gets to anything. It trails
+	# the aircraft, which is itself held a couple of metres off the terrain, so there is
+	# nothing between here and a metre that it needs to see.
+	near = near_plane
 
 
 ## How far the camera can see, in metres.
@@ -78,6 +88,12 @@ func _ready() -> void:
 ## further only costs depth precision. Kept as an export so a review camera can be
 ## pulled back without touching the cockpit's default.
 @export var visibility_range := 20000.0
+
+## Closest thing the camera draws, in metres.
+##
+## The other half of the depth range. Raising it is what buys the precision that keeps
+## ground-level detail from fighting the terrain.
+@export var near_plane := 1.0
 
 
 ## Snap the camera to its ideal pose with no smoothing. Call after a teleport or
