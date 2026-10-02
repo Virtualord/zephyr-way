@@ -207,6 +207,87 @@ func _check_world_wiring(main: Node) -> void:
 			"sea reaches %.0f m, terrain reaches %.0f m" % [
 				sea_half, island.builder.grid_extent()])
 
+		_check_ocean(island, sea, sea_half)
+
+
+## The stylized ocean, and the two things that silently removed it.
+##
+## Both of these were invisible to every other check and obvious in a render:
+##
+##  - `ALBEDO = vec4(...)` does not compile in a Godot 4 spatial shader, where ALBEDO
+##    is a vec3. The shader failed to load and the sea plane drew nothing at all. From
+##    the air the gap read as the sky's lower half, so it looked like flat water rather
+##    than missing water. If the sea is not a ShaderMaterial here, it is not rendering.
+##
+##  - The height field covers the island, not the whole sea, so sampling past its edge
+##    has to clamp. It briefly did not: the water past the field was forced to the abyss
+##    tone while water just inside it stayed deep, which drew a hard square seam across
+##    the ocean at exactly the field's extent.
+func _check_ocean(island: Island, sea: MeshInstance3D, sea_half: float) -> void:
+	var material := sea.material_override as ShaderMaterial
+	_check("sea uses the ocean shader", material != null,
+		"got %s" % sea.material_override.get_class())
+	if material == null:
+		return
+
+	_check("ocean shader is the one on disk", material.shader != null
+		and material.shader.resource_path == Island.OCEAN_SHADER_PATH,
+		str(material.shader.resource_path if material.shader != null else "none"))
+
+	# A shader that failed to compile reports itself here.
+	_check("ocean shader compiled", material.shader.get_shader_uniform_list().size() > 0)
+
+	var field := material.get_shader_parameter(&"height_field") as Texture2D
+	_check("ocean has a seabed field", field != null)
+
+	# The field must sit inside the water, or its edge lands in open sea.
+	var extent: float = material.get_shader_parameter(&"world_extent")
+	_check("seabed field sits inside the sea", extent * 0.5 < sea_half,
+		"field reaches %.0f m, sea reaches %.0f m" % [extent * 0.5, sea_half])
+
+	# Colours come from the palette, so the sea follows the art direction rather than
+	# two hand-picked values.
+	for uniform in [&"shallow_color", &"deep_color", &"abyss_color", &"foam_color"]:
+		_check("ocean uniform %s is set" % uniform,
+			material.get_shader_parameter(uniform) != null)
+
+	# The camera must be able to see the water out to where fog takes over.
+	#
+	# Not to the sea's geometric edge. The plane is far larger than the fogged range
+	# on purpose -- there is no reason to draw water that is a flat fog colour -- so the
+	# invariant that matters is that the far plane sits beyond the fog's end. Godot's
+	# default is 4000 m, which clipped the sea in a straight line well short of the
+	# horizon and made a distant massif look like it was floating, because the water
+	# beneath it had been clipped away rather than fogged out.
+	var camera := _find_any_camera(island.get_parent())
+	var fog_end := _fog_end(island)
+	if camera == null:
+		_check("camera outdraws the fog", false, "no camera found")
+		return
+	_check("camera outdraws the fog", camera.far > fog_end,
+		"far plane %.0f m, fog ends at %.0f m" % [camera.far, fog_end])
+
+
+func _fog_end(island: Island) -> float:
+	for child in island.get_node_or_null(^"Atmosphere").get_children():
+		var world := child as WorldEnvironment
+		if world != null and world.environment != null:
+			return world.environment.fog_depth_end
+	return 0.0
+
+
+## Any camera, where _find_camera only accepts the chase camera specifically.
+func _find_any_camera(node: Node) -> Camera3D:
+	if node == null:
+		return null
+	if node is Camera3D:
+		return node
+	for child in node.get_children():
+		var found := _find_any_camera(child)
+		if found != null:
+			return found
+	return null
+
 
 func _check_aircraft(main: Node) -> void:
 	var aircraft := main.get_node_or_null(^"Aircraft/FlightController")
