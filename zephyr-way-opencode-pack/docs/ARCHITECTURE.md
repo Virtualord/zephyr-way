@@ -431,24 +431,103 @@ by reading `FlightState` in the debugger. That is the main reason to expect the
 milestone 7 prompt to be worth its cost: flying without instruments is hard to
 judge, and `tests/flight_recorder.gd` exists partly to compensate.
 
+## Milestone 04 — ocean and atmosphere
+
+### The ocean reads the seabed it is drawn on
+
+`shaders/ocean.gdshader` takes its depth from a height field that `Island._height_field`
+rasterises once at startup from the same `TerrainGenerator` the terrain mesh is built
+from. So the shallows and the foam line follow the real seabed, and they cannot drift
+out of step with it the way a hand-tuned depth curve would.
+
+The field is deliberately sized to the island (`height_field_extent = 6000 m`) rather
+than to the sea plane. At the sea's full width a 256-texel field is coarser than the
+shoreline the foam is drawn along, and the shallows arrive as blocky rectangles instead
+of a coastline. Past the field the shader clamps rather than special-casing the water
+as abyss-deep: the height field is an analytic function and returns a uniform ~85 m of
+water offshore, so a branch there painted deep water just outside the field and
+ordinary deep water just inside it, drawing a hard square seam across the ocean at
+exactly the field's extent.
+
+Cost is a handful of `sin()` calls and one texture read per fragment on a single quad.
+No refraction, no screen-space reflection, no normal map.
+
+### The water is partly emissive, and that is the point
+
+`self_light` keeps a fraction of the water's colour independent of the sun. Dimming the
+sun to stop the rock washing out (below) dims the water by the same factor, and a sea
+that darkens with the sun stops reading as sea. The sun sheen on top still carries the
+lighting, so the water is not flat — it just has a floor under its value.
+
+### Lighting was set by measurement, because the mesh was not at fault
+
+The mountains rendered near-white while the palette calls for a mid grey-blue
+(`rock.dark` lerped toward `rock.cool_grey` = `#575a6e`). Reading the chunk vertex
+colours straight out of the mesh buffers (`tests/diagnose_terrain_colours.gd`) showed
+the mesh was carrying exactly that colour, so no amount of fog or tonemap tuning would
+have fixed it. An A/B of one viewpoint with each lighting factor isolated
+(`tests/ab_lighting.gd`) then settled the cause: fog off changed nothing, ambient off
+changed nothing, sun off dropped the mountains to their correct dark purple. Sun energy
+went 1.25 → 0.32 and ambient 0.45 → 0.25.
+
+A numeric sweep had reached a wrong conclusion on the way there and is worth recording.
+It measured from 900 m, where `fog_depth_begin` is 2600 m — so "fog off changes nothing"
+was true and meaningless, because there was no fog to find. The problem only appears at
+the 2–3 km the wide shots are taken from. The first version of that sweep also averaged
+whole frames that were two thirds sky, so every configuration came back within a percent
+of the same number.
+
+### Visual verification is now a workflow step
+
+`tests/render_shot.gd` needs a GPU and a display, so it stays out of `run_tests.sh`.
+Every rendering milestone now renders, and the images are inspected. That is not
+ceremony. Three defects in this milestone passed every numeric assertion and were
+obvious in the first screenshot:
+
+- **The ocean shader never compiled.** `ALBEDO` is a `vec3` in a Godot 4 spatial
+  shader, not a `vec4` as in Godot 3, so `ALBEDO = vec4(water, alpha)` was rejected.
+  The sea plane drew nothing at all — and because the sky's lower hemisphere is a
+  similar colour from above, it read as *flat purple water* rather than as missing
+  water. Godot reports the error against the whole shader with no line of context, so
+  it looked like the water expression was wrong. `scene_test.gd` now asserts the shader
+  compiled, and that assertion was confirmed to fail when `vec4` is put back.
+- **The camera's far plane clipped the sea.** Godot's default is 4000 m; the fog runs
+  to 11000 m. The water was cut off in a hard straight line well short of the horizon,
+  and because the cut also removed the water *under* a distant massif, that massif
+  appeared to float in the sky as a detached shard. `ChaseCamera.visibility_range` now
+  sets the far plane past the fog.
+- **The seabed field's edge drew a seam across the ocean.** See above.
+
+Two checks were added for the first two, and both were verified to fail when the defect
+is reintroduced — a regression test that cannot fail is not a regression test.
+
+### A diagnostic that was wrong is worth keeping
+
+`tests/diagnose_floating_terrain.gd` reported 30 chunks floating up to 750 m above the
+terrain. None of them were. Two mistakes, both documented in the file: chunk meshes keep
+their world offset in the node *name*, with every transform left at the identity, so
+reading `global_position` compared each chunk against the terrain at the world origin;
+and the footprint was sampled one 25 m step from the corner of each 500 m chunk rather
+than across it. With both fixed it reports zero, and a direct comparison of mesh
+vertices against `height_at` at the same coordinates agrees to 0.0 m.
+
 ## Known rough edges
 
-- **No visual verification.** Everything here is verified headless: parse checks,
-  numerical assertions, scene instantiation. Nothing has confirmed that the island or
-  the aircraft *looks* right. The terrain's shape is verified numerically — 670–690 m
-  summits, four distinct massifs, a level runway, a convoluted coastline — but none of
-  that says whether the coast is interesting or the mountains read well from the air.
-  Expect to iterate on `TerrainGenerator`'s noise frequencies and `AircraftProfile`'s
-  proportions by eye. This is the largest gap in the project.
+- **The aircraft has still never been flown by hand.** Everything below about the flight
+  model is numeric.
+- **The ocean has no shoreline at the airport's flat side**, and the swell is two crossed
+  sines, which is enough for a calm stylised sea and not enough to survive a close pass
+  at low altitude with the camera near the water. Foam bands are depth thresholds, so on
+  a very shallow gradient they spread out rather than staying a crisp line.
+- **Water coverage is still 56%, not the contract's 72%.** Carried over from milestone
+  03 and unchanged here; the ocean shader made the discrepancy more visible rather than
+  less, since the water is now worth looking at.
 - **The mountains are steep — up to 5 m per metre.** Continuous rather than walls, so
   the aircraft can fly along them, but it cannot climb them. That suits an exploration
   game, where going around is the point, and it is a deliberate choice rather than an
   oversight. If it turns out to feel bad, the levers are `max_elevation` and
   `mountain_reach_fraction`, which are derived from each other and from the island
   size.
-- **The water coverage is 56%, not the contract's 72%.** See above; the island is sized
-  for four flyable massifs and the coverage figure assumes a smaller one. If the
-  coverage matters more, the peaks have to come down instead.
 - **The flight model is verified against physics, not against feel.** It turns at the
   right rate for the right reason, and a headless autopilot climbs away from the
   airport and crosses the island, but nobody has flown it with a keyboard. Numbers in
@@ -459,6 +538,17 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
 - **`MeshBuilder` normals carry float noise.** Face normals read back as
   `(0, 1, -0.000015)` rather than exact values. Harmless for rendering, but
   compare normals with a tolerance, as `procedural_test.gd` does.
+- **`project.godot` was rewritten once, destructively, and could not be reproduced.**
+  Godot replaced the file with its own generated version, which dropped the `[physics]`
+  section, `renderer/rendering_method="forward_plus"`, vsync, the screen-space AA
+  setting and the `[debug]` warning suppressions, and reformatted every input event.
+  Restored from git. It did not recur across `--editor --quit`, a test suite, a plain
+  `--quit`, a display-mode render, and a script run from outside the project — all five
+  left the file byte-identical. An earlier backup/restore guard was removed for exactly
+  this reason: the premise could not be reproduced, and a restore silently discards any
+  real edit made in between, which is worse than the problem it solves. So there is no
+  guard. `git diff project.godot` will show it if it happens again, and the content to
+  restore is in the history.
 - **Godot leak warnings on exit.** Every headless suite prints a few leaked RID
   warnings because the suites `quit()` mid-frame. `run_tests.sh` filters them.
   They are not memory leaks in the game.
@@ -470,8 +560,9 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
 - **Chunk generation is spread over frames, so the island fades in.** 4 chunks per
   frame at 60 fps. Deliberate: building the whole grid at once freezes on entry, and
   the grid grew with the island — it is sized from `island_radius`, so a larger island
-  means more chunks and a longer fade. A loading screen would be better, and is
-  arguably milestone 4's business.
+  means more chunks and a longer fade. A loading screen would be better and is still
+  outstanding. The seabed field is not spread this way: it is 65k `height_at` calls
+  built synchronously at startup, which is a visible hitch on entry.
 - **`turn_rate_degrees` is per-tick.** It is derived from one frame's heading
   change, so it is noisy frame to frame. Averaging it over several seconds gives
   the true rate; `flight_analysis.gd` shows the difference.
