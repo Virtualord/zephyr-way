@@ -29,7 +29,7 @@ extends Node3D
 ## Beyond the terrain's own edge the seabed keeps going -- `height_at()` returns
 ## water indefinitely -- so the plane is what has to cover the gap, and it has to be
 ## generous because it is also the horizon when flying.
-@export_range(2.0, 20.0, 0.5) var sea_extent_factor := 8.0
+@export_range(2.0, 64.0, 0.5) var sea_extent_factor := 24.0
 @export var sea_color := Color("#1CA7C6")
 @export var sea_deep_color := Color("#0A4F8F")
 
@@ -186,15 +186,21 @@ func _terrain_material() -> StandardMaterial3D:
 var _terrain_material_cache: StandardMaterial3D
 
 
-## Flat sea plane at sea level.
+## Flat sea plane at sea level, carrying the stylized ocean shader.
 ##
-## A simple two-tone gradient by depth rather than a shader: milestone 04 owns the
-## stylized ocean, and this only needs to read as water and provide a horizon.
+## The shader reads the seabed from a height field the generator produces, so the
+## shallows and the foam line follow the real terrain rather than a hand-tuned curve
+## that drifts out of step with it.
 func _build_sea() -> void:
 	# Sized from the island rather than set, so growing the island cannot leave the
 	# sea short of the terrain. Subdivided as well, because a 32 km plane built from
 	## two triangles has no vertices to bend for a horizon, and its single huge quad
 	# is where precision problems show up first.
+	# Big enough that its edge is beyond the fog's full density, so the sea reaches the
+	# horizon instead of ending in a visible straight line partway to it. At the old
+	# extent of 16 km the edge sat about 8 km out, which from a low camera is only a
+	# couple of degrees below eye level -- so the boundary was plainly visible as a
+	# straight edge across the frame, with the sky showing past it.
 	var extent := generator.island_radius * sea_extent_factor
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(extent, extent)
@@ -210,20 +216,120 @@ func _build_sea() -> void:
 	add_child(_sea)
 
 
-func _sea_material() -> StandardMaterial3D:
+## The ocean material, or a flat fallback if the shader is missing.
+##
+## A missing shader would otherwise leave the sea as a black quad, which is worse than
+## an unstyled one, so the failure is reported and a plain material used instead.
+func _sea_material() -> Material:
+	var shader: Shader = load(OCEAN_SHADER_PATH) as Shader
+	if shader == null:
+		push_warning("Island: ocean shader not found at %s; using a flat sea." % OCEAN_SHADER_PATH)
+		return _flat_sea_material()
+
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	# Colours come from the palette's own ocean group, which was already in
+	# design/color_palette.json and specifies five tones. Two hand-picked colours
+	# were being used instead, which is why the sea never matched the art direction.
+	material.set_shader_parameter(&"shallow_color", Palette.color("ocean.shallow"))
+	material.set_shader_parameter(&"deep_color", Palette.color("ocean.deep"))
+	material.set_shader_parameter(&"abyss_color", Palette.color("ocean.abyss"))
+	material.set_shader_parameter(&"foam_color", Palette.color("ocean.foam"))
+	material.set_shader_parameter(&"edge_color", Palette.color("ocean.wet_edge"))
+	material.set_shader_parameter(&"height_field", _height_field())
+	material.set_shader_parameter(&"world_extent", height_field_extent)
+	material.set_shader_parameter(&"sea_level", TerrainGenerator.SEA_LEVEL)
+	material.set_shader_parameter(&"height_range", height_field_range)
+	# The ocean's sun sheen needs the sun's direction. Taken from the atmosphere
+	# rather than duplicated, so the two cannot drift apart.
+	var atmosphere := get_node_or_null(^"Atmosphere") as IslandAtmosphere
+	if atmosphere != null:
+		material.set_shader_parameter(&"light_direction", atmosphere.sun_direction())
+		# The sea is deliberately given some light of its own. Dimming the sun to keep
+		# the rock palette correct also dims the water by the same factor, and a sea
+		# that darkens with the sun stops reading as sea. Emissive water is a standard
+		# stylised-ocean trick: the surface colour stays legible and the sun sheen on top
+		# still carries the lighting.
+		material.set_shader_parameter(&"self_light", self_light)
+	return material
+
+
+## Seabed heights for the ocean shader to read.
+##
+## Sampled once at startup from the same generator the terrain uses, so the water's
+## idea of the seabed is the terrain's idea of the seabed rather than a second,
+## slightly different source that drifts out of step with it.
+func _height_field() -> Texture2D:
+	if _built_height_field != null:
+		return _built_height_field
+	var size := HEIGHT_FIELD_SIZE
+	# RGBA8 with the height normalised into the green channel, not FORMAT_RF.
+	#
+	# The single-float-channel version read back as zero on this backend, so every
+	# fragment computed maximum depth and the sea came out one flat colour. RGBA8 is
+	# portable, costs 65k more texels once at startup, and normalises cleanly: the
+	# island's relief is about 800 m from trough to summit, which fits an 8-bit
+	# channel at roughly 3 m per step, far finer than the foam band needs.
+	var image := Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
+	var half := height_field_extent * 0.5
+	for y in size:
+		for x in size:
+			# Texel (0,0) is the low corner, matching the uv the shader builds.
+			var world_x := (float(x) / float(size - 1) - 0.5) * height_field_extent
+			var world_z := (float(y) / float(size - 1) - 0.5) * height_field_extent
+			var height := generator.height_at(world_x, world_z)
+			# Encoded symmetrically about zero, because the sea is mostly *negative*
+			# terrain: the whole seabed sat below the old 0-based encoding and clamped
+			# to 0.0, so every fragment computed zero depth, no gradient appeared and no
+			# foam was ever in range. The shader divides back out the same way.
+			var encoded := clampf(
+				height / (2.0 * height_field_range) + 0.5, 0.0, 1.0
+			)
+			image.set_pixel(x, y, Color(encoded, encoded, encoded, 1.0))
+	_built_height_field = ImageTexture.create_from_image(image)
+	return _built_height_field
+
+
+## Resolution of the seabed field handed to the ocean shader, per axis.
+##
+## 256 is ample: the shader only needs the shape of the shallows, and the foam line is
+## tens of metres wide, so one texel every 94 m cannot make it look wrong. It is
+## generated once, so the cost is 65k height evaluations at startup.
+const HEIGHT_FIELD_SIZE := 256
+
+## World extent the height field covers, in metres, centred on the island.
+##
+## Sized to the island rather than to the sea plane. At 24000 m -- the width that
+## covers the whole sea -- a 256-texel field is 94 m per texel, which is coarser than
+## the shoreline the foam is drawn along, so the shallows and the foam arrived as
+## blocky rectangles rather than a coastline. At 6000 m the island's full 4 km width
+## gets about 170 texels, and the water beyond 3 km out is open sea where the shader
+## treats the ground as deep anyway.
+@export var height_field_extent := 6000.0
+
+## Range the height field encodes over, in metres. Must comfortably exceed the
+## island's relief, since anything above the top of the range is clamped and would
+## read as the deepest water rather than as land.
+@export var height_field_range := 800.0
+
+## How much of its own colour the water keeps regardless of the sun, 0 to 1.
+## See the note where it is passed to the shader.
+@export_range(0.0, 1.0, 0.05) var self_light := 0.55
+
+const OCEAN_SHADER_PATH := "res://shaders/ocean.gdshader"
+
+var _built_height_field: Texture2D
+
+
+## Unstyled water, used only if the shader cannot be loaded.
+func _flat_sea_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = sea_color
 	material.roughness = 0.12
 	material.metallic = 0.25
-	# Some transparency so shallow seabed colours show through near the shore,
-	# which is the cheap part of what milestone 04 will do properly with a shader.
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color.a = 0.82
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	# No per-material fog toggle here: fog is a WorldEnvironment setting in Godot, not
-	# a material property, and `fog_enabled` does not exist on BaseMaterial3D. The sea
-	# is fogged by the same depth fog as the terrain, which is what makes the water
-	# recede into the haze at the horizon rather than staying a flat blue slab.
 	return material
 
 
