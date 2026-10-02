@@ -28,9 +28,9 @@ const CELLS_PER_CHUNK_NEAR := 25
 ## Distance in metres within which a chunk is built at [constant LOD_NEAR].
 const LOD_DISTANCE := 900.0
 
-## Half-extent of the chunk grid, in chunks. Covers the island plus a sea border, so
-## the horizon is water rather than the edge of the terrain.
-const GRID_CHUNKS := 4
+## Extra chunks beyond the island's edge, so the horizon is water rather than the
+## edge of the terrain.
+const SEA_BORDER_CHUNKS := 2
 
 var generator: TerrainGenerator
 
@@ -38,6 +38,9 @@ var generator: TerrainGenerator
 ## once: rebuilding the list on every aircraft movement was a per-frame allocation
 ## for no benefit.
 var _origins: Array[Vector2] = []
+## Half-extent of the grid, in chunks. Derived from the island radius so resizing the
+## island does not leave the terrain short of its own shoreline.
+var _grid_chunks := 0
 
 
 func _init(terrain_generator: TerrainGenerator = null) -> void:
@@ -45,10 +48,19 @@ func _init(terrain_generator: TerrainGenerator = null) -> void:
 	_build_origin_cache()
 
 
+## Half-extent of the chunk grid, in chunks.
+func grid_chunks() -> int:
+	return _grid_chunks
+
+
 func _build_origin_cache() -> void:
+	# Enough chunks to reach the island's land, plus a sea border. A fixed count was
+	# wrong twice over: too small for a larger island, which left the shoreline
+	# unbuilt, and larger than needed for a smaller one, which built a lot of ocean.
+	_grid_chunks = int(ceil(generator.island_radius / CHUNK_SIZE)) + SEA_BORDER_CHUNKS
 	_origins = []
-	for x in range(-GRID_CHUNKS, GRID_CHUNKS + 1):
-		for z in range(-GRID_CHUNKS, GRID_CHUNKS + 1):
+	for x in range(-_grid_chunks, _grid_chunks + 1):
+		for z in range(-_grid_chunks, _grid_chunks + 1):
 			_origins.append(Vector2(float(x) * CHUNK_SIZE, float(z) * CHUNK_SIZE))
 
 
