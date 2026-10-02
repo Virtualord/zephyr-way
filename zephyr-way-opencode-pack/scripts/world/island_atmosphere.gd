@@ -21,19 +21,35 @@ extends Node3D
 ## Sky gradient. The palette's dusk set, warmed slightly near the horizon.
 @export var sky_top := Color("#5A63A8")
 @export var sky_horizon := Color("#FFB9A6")
-@export var ground_horizon := Color("#7A5C8E")
-@export var ground_bottom := Color("#242848")
+## Colour where the sky's lower half meets its upper half.
+##
+## Kept close to [member sky_horizon] on purpose. A large jump between the two puts a
+## hard horizontal line across the sky at the horizon, which is very visible in a
+## wide shot and reads as a rendering fault rather than as weather. The rendered
+## images showed exactly that: a straight band well above the sea.
+@export var ground_horizon := Color("#E8A9AE")
+@export var ground_bottom := Color("#6B5A7E")
 
 ## Fog. Distance fog rather than density, because a density fog fills in the whole
 ## view and washes out the near terrain; depth fog only affects distance, which is
 ## what gives aerial perspective.
-@export var fog_color := Color("#C9A8C4")
-@export_range(300.0, 8000.0, 50.0) var fog_begin := 900.0
-@export_range(600.0, 12000.0, 50.0) var fog_end := 4200.0
-@export_range(0.5, 3.0, 0.05) var fog_curve := 1.5
+##
+## The distances are set against the island, not chosen for looks. The island is
+## 4000 m across and the world is 5000 m, so a player routinely has 2-3 km of
+## terrain in frame at once. Fogging from 900 m to 4200 m — the first values tried —
+## meant most of the island was permanently behind haze, and the rendered shots came
+## back with a flat purple wash over the mountains and no horizon.
+##
+## Fog now starts beyond the island and completes well past it, so it does
+## atmospheric depth on the far side of the world without touching anything the
+## player is actually flying over.
+@export var fog_color := Color("#B9A6CE")
+@export_range(1000.0, 12000.0, 100.0) var fog_begin := 2600.0
+@export_range(2000.0, 30000.0, 100.0) var fog_end := 11000.0
+@export_range(0.5, 3.0, 0.05) var fog_curve := 1.0
 
 ## Distance at which shadows are calculated, in metres.
-@export_range(100.0, 4000.0, 50.0) var shadow_distance := 1400.0
+@export_range(100.0, 8000.0, 50.0) var shadow_distance := 3000.0
 
 var _sun: DirectionalLight3D
 var _world_environment: WorldEnvironment
@@ -87,10 +103,15 @@ func _build_environment() -> void:
 	var sky_material := ProceduralSkyMaterial.new()
 	sky_material.sky_top_color = sky_top
 	sky_material.sky_horizon_color = sky_horizon
-	sky_material.sky_curve = 0.18
+	# A broad gradient rather than a tight one.
+	#
+	# At 0.18 the horizon colour met the zenith colour within a few degrees, which
+	# put a hard band across the sky. Visible in the rendered shots as a straight
+	# horizontal line well above the horizon.
+	sky_material.sky_curve = 0.45
 	sky_material.ground_horizon_color = ground_horizon
 	sky_material.ground_bottom_color = ground_bottom
-	sky_material.ground_curve = 0.05
+	sky_material.ground_curve = 0.2
 	sky_material.sun_angle_max = 6.0
 	sky_material.sun_curve = 0.08
 
@@ -103,8 +124,14 @@ func _build_environment() -> void:
 
 	# Ambient light from the sky rather than a flat colour, so shaded slopes pick
 	# up the sky's blue and do not go uniformly grey.
+	#
+	# Scaled down rather than left at full strength. The sky is bright, and full sky
+	# ambient fills every shadow until the faceting that makes low-poly terrain read
+	# disappears into a flat wash. Enough fill to keep shadowed faces coloured, not
+	# enough to erase the difference between them.
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	environment.ambient_light_sky_contribution = 1.0
+	environment.ambient_light_energy = 0.45
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 
 	environment.fog_enabled = true
@@ -118,8 +145,19 @@ func _build_environment() -> void:
 	environment.fog_depth_curve = fog_curve
 	environment.fog_sky_affect = 0.4
 
-	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	environment.tonemap_white = 1.6
+	# Linear tonemapping at a white point of 1.0, not a filmic curve at 1.6.
+	#
+	# The filmic curve lifts midtones hard, which is right for HDR content where 1.0
+	# is mid-grey and the highlights need somewhere to go. This project is neither:
+	# the palette is chosen as final display colours, and the whole point of a
+	# stylized low-poly look is that a face's colour is the colour that was picked for
+	# it. At filmic/1.6 the mountains' rock, which is a mid grey-blue at #585a6f,
+	# rendered as near-white — the terrain generator was correct and the tonemapper was
+	# throwing the art direction away.
+	#
+	# Linear also keeps saturation, which filmic desaturates as it rolls off.
+	environment.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	environment.tonemap_white = 1.0
 
 	_world_environment = WorldEnvironment.new()
 	_world_environment.name = "WorldEnvironment"

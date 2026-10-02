@@ -16,6 +16,9 @@ const MAIN_SCENE := "res://scenes/main/Main.tscn"
 const SETTLE_FRAMES := 5
 ## Frames simulated afterwards, to check the running state.
 const SIMULATED_FRAMES := 30
+## Frames allowed for the island to generate every chunk. Generation is spread over
+## frames at 4 chunks per frame, so a few hundred is generous.
+const CHUNK_BUILD_FRAMES := 900
 
 var _failures := 0
 var _checks := 0
@@ -44,7 +47,10 @@ func _initialize() -> void:
 	await _settle()
 
 	_check_environment(main)
-	_check_world_wiring(main)
+	# Awaited: this one steps frames while it waits for the island to generate, and
+	# an un-awaited coroutine suspends at its first await and leaves the rest of its
+	# checks to run after _finish() has already reported a result.
+	await _check_world_wiring(main)
 	_check_aircraft(main)
 	_check_airframe(main)
 	_check_camera(main)
@@ -159,12 +165,47 @@ func _check_world_wiring(main: Node) -> void:
 	# The island must generate geometry, and stay low-poly. Both bounds matter: too
 	# few triangles and the terrain is invisible, too many and the design's low-poly
 	# look is gone.
-	await _settle()
+	#
+	# Generation is spread over frames, so this waits for the real count rather than
+	# sampling early and reporting whatever happened to be there. Every chunk of the
+	# grid must appear: a chunk key that collides on symmetric coordinates silently
+	# dropped 43 of 289, and the result was holes in the world with no error
+	# anywhere -- `built_chunk_count()` was simply smaller than the grid.
+	var wanted := island.builder.chunk_origins().size()
+	var frames := 0
+	while frames < CHUNK_BUILD_FRAMES and island.built_chunk_count() < wanted:
+		await process_frame
+		frames += 1
+	_check("island builds every chunk of the grid",
+		island.built_chunk_count() == wanted,
+		"%d of %d built in %d frames" % [island.built_chunk_count(), wanted, frames])
 	_check("island builds chunks", island.built_chunk_count() > 0,
 		"%d chunks" % island.built_chunk_count())
+
+	# Chunk keys must be unique, checked directly rather than inferred from the
+	# count: two origins sharing a key is the mechanism, and it is invisible from the
+	# count alone if the grid happens not to contain a symmetric pair.
+	var keys := {}
+	var collisions := 0
+	for origin in island.builder.chunk_origins():
+		var key := island._key_for(origin, false)
+		if keys.has(key):
+			collisions += 1
+		keys[key] = true
+	_check("chunk keys are unique", collisions == 0, "%d colliding origins" % collisions)
+
 	var triangles := island.triangle_count()
 	_check("island has terrain geometry", triangles > 1000, "%d triangles" % triangles)
 	_check("island stays low poly", triangles < 250000, "%d triangles" % triangles)
+
+	# The sea has to reach past the built terrain, or the world's edge is visible as
+	# a hard line with sky behind it. Invisible from the ground, glaring from the air.
+	var sea := island.get_node_or_null(^"Sea") as MeshInstance3D
+	if sea != null and sea.mesh is PlaneMesh:
+		var sea_half: float = (sea.mesh as PlaneMesh).size.x * 0.5
+		_check("sea covers the built terrain", sea_half > island.builder.grid_extent(),
+			"sea reaches %.0f m, terrain reaches %.0f m" % [
+				sea_half, island.builder.grid_extent()])
 
 
 func _check_aircraft(main: Node) -> void:
