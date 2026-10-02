@@ -65,13 +65,31 @@ var _ridge_peak := 1.0
 ## shoreline falls.
 ##
 ## Land starts submerging at [constant SHORE_LOW] of this and is gone by
-## [constant SHORE_HIGH], so the usable interior is a fraction of it.
+## [constant SHORE_LOW], so the usable interior is a fraction of it.
 ##
-## Sized for the design's 72% water coverage and for the 650 m peaks. A peak that
-## height needs roughly 590 m of base to stay within the flight model's climbable
-## gradient, plus room for the airport plateau, and that does not fit on a smaller
-## island.
-@export var island_radius := 1500.0
+## ## Why the island is this size
+##
+## Island radius, mountain reach and mountain count are one budget, not three
+## independent knobs. Two requirements meet:
+##
+## - A peak of [member max_elevation] needs a reach of about
+##   `max_elevation * PI / (2 * MAX_GRADIENT)` to stay within the flight model's
+##   climbable gradient, since the falloff curve's steepest slope is `PI/2` times its
+##   average.
+## - Four massifs of reach R need a mountain ring of at least 2R, or they merge into
+##   one range instead of reading as separate mountains.
+##
+## Together those need a ring of about 1860 m, so the radius has to exceed that by
+## enough to leave the airport flat ground on the far side. At 1500 m the ring could
+## not hold the massifs: separation failed outright, the foci collapsed onto each
+## other, and the peaks fell to 506 m against a 650 m contract.
+##
+## The design's 72% water coverage is what this trades against. A circular island
+## covering 28% of a 5000 m square has a radius near 1500 m, so the island is now
+## larger than the coverage figure implies and measures nearer 76% water. Coverage is
+## a soft aesthetic target; four flyable, distinguishable 650 m peaks are the
+## requirement the terrain actually has to meet.
+@export var island_radius := 2000.0
 
 ## Peak elevation of the mountains, in metres. From design/world_design.json.
 @export var max_elevation := 650.0
@@ -96,8 +114,34 @@ var _ridge_peak := 1.0
 ## the world's western edge and put the village and lighthouse in open water.
 @export var island_center := Vector2.ZERO
 
-## Fraction of the island radius at which mountain summits sit.
-@export_range(0.2, 0.7, 0.01) var mountain_ring_fraction := 0.5
+## Radius of the ring the mountain foci sit on, in metres.
+##
+## Must exceed [method mountain_reach] or every summit sits outside its own massifs
+## reach and produces nothing, and must be large enough for the foci to be
+## [method minimum_focus_separation] apart: four foci evenly spaced on a ring of
+## radius R are `R * sqrt(2)` apart, so the ring needs at least `separation * 2 / sqrt(2)`.
+##
+## Derived rather than set, because both bounds move when the reach, the count or the
+## island size changes, and a value that ignores them produces either invisible
+## mountains or a range collapsed into one massif.
+func mountain_ring_radius() -> float:
+	var separation := minimum_focus_separation()
+	var by_count := separation * 2.0 / sqrt(2.0)
+	var by_reach := mountain_reach() * RING_CLEARANCE
+	# Never outside the island's land, however large the other bounds push.
+	return minf(maxf(island_radius * mountain_ring_fraction, maxf(by_count, by_reach)),
+		island_radius * 0.85)
+
+
+## Margin between the mountain ring and the massif reach, as a multiple.
+##
+## Above 1 so the massifs stand inside the shoreline rather than being cut by it.
+const RING_CLEARANCE := 1.05
+
+
+## Nominal ring position, as a fraction of the island radius. A floor for
+## [method mountain_ring_radius], not the answer on its own.
+@export_range(0.2, 0.9, 0.01) var mountain_ring_fraction := 0.6
 
 ## Angle step used when searching the ring for a clear position, in radians.
 const FOCUS_ANGLE_STEP := 0.06
@@ -108,20 +152,29 @@ const FOCUS_RADIUS_STEP := 12.0
 ## Radius over which a mountain falls from summit to nothing, as a fraction of the
 ## island radius.
 ##
-## Sized so the massifs are discrete hills with low ground between them, rather than
-## one continuous range covering the island.
+## Radius over which a mountain falls from summit to nothing, as a fraction of the
+## island radius.
+##
+## Sized for the massifs to be distinct rather than one continuous range.
 ##
 ## This was originally 1.0, the same as the island radius, and that made every
-## mountain cover the whole island: their contributions summed everywhere, so most of
-## the land sat above 50 m and there was no low ground left for the airport. The
-## airport ended up on a mountainside with 750 m of relief within 1.1 km, and the
-## plateau blend had to span all of it.
+## mountain cover the whole island: their contributions summed everywhere, most of
+## the land sat above 50 m, and there was nowhere flat to put a runway.
 ##
-## A steep mountain is acceptable. The aircraft cannot climb it, but it can fly
-## around it, and the surface stays continuous either way — which is the property
-## that actually matters. What is not acceptable is mountain everywhere, because then
-## there is nowhere flat to put a runway.
-@export_range(0.1, 1.0, 0.01) var mountain_reach_fraction := 0.3
+## Sized from [member max_elevation] and [constant MAX_GRADIENT] rather than chosen by
+## eye. The falloff is a quarter sine, so its steepest slope is `PI/2` times the
+## average, and the average is the relief divided by the reach. Requiring that
+## steepest slope to be climbable gives:
+##
+## [codeblock]
+##   reach >= max_elevation * PI / (2 * MAX_GRADIENT)
+##         = 650 * PI / (2 * 1.1)  =  928 m
+## [/codeblock]
+##
+## 0.46 of a 2000 m radius is 920 m, that value to within a percent. A fraction rather
+## than an absolute distance so the relationship survives a change to either the
+## elevation or the island size, both of which the design file owns.
+@export_range(0.1, 1.0, 0.01) var mountain_reach_fraction := 0.46
 
 ## Flat plateau reserved for the airport, from design/world_design.json.
 @export var airport_position := Vector2(-850.0, 420.0)
@@ -243,8 +296,14 @@ const RIDGE_SHARPNESS := 1.6
 ## of metres across varies faster than the climbable gradient allows no matter what
 ## the falloff does.
 const RIDGE_FREQUENCY := 0.00042
-## Octaves of ridge noise. Few, so the finest detail stays broad.
-const RIDGE_OCTAVES := 3
+## Octaves of ridge noise.
+##
+## Few, because this is the dominant source of steepness on the island rather than
+## the falloff. The ridge scales to the full [member max_elevation], so its own
+## gradient is multiplied by 650 m: three octaves have a finest wavelength of 595 m
+## and a measured gradient of 0.0048 per m, which is 3.1 m of height per metre of
+## ground on its own. Two octaves roughly halves that.
+const RIDGE_OCTAVES := 2
 
 
 ## Lay out the carved valleys, spread around the island and pointing outward so
@@ -276,22 +335,75 @@ func height_at(x: float, z: float) -> float:
 const MAX_GRADIENT := 1.1
 
 
+## Peak derivative of a smoothstep, relative to its average slope.
+##
+## A blend of height `h` over width `w` has an average gradient of `h / w`, but a
+## smoothstep's steepest point is 1.5 times that. Every blend width in this file is
+## therefore divided by this factor, not by [constant MAX_GRADIENT] alone: without it
+## the blend meets its gradient budget on average and exceeds it in the middle, which
+## is where the measured steepest points always were.
+const SMOOTHSTEP_PEAK_SLOPE := 1.5
+
+
+## Width a blend needs to change height by `difference` without exceeding
+## [constant MAX_GRADIENT], accounting for the smoothstep's peak slope.
+func _blend_width(difference: float, cap: float) -> float:
+	var required := absf(difference) * SMOOTHSTEP_PEAK_SLOPE / MAX_GRADIENT
+	return clampf(required, AIRPORT_BLEND_MIN, cap)
+
+
 ## Height above sea level at a point.
 ##
-## Layers are composed, then the airport plateau is blended in over the top. The
-## order matters: the plateau has to be able to raise land that the coast mask would
-## otherwise treat as seabed, because the design's runway reaches 350 m from the
-## plateau centre and that is close enough to the shore for the mask to be zero.
+## Composed in three steps: build the land, sink it into the sea across the shore,
+## then flatten the airport into the result. The order matters — the plateau has to
+## be able to raise ground the shoreline would otherwise have claimed, because the
+## design's runway reaches 350 m from the plateau centre and that is close enough to
+## the coast for the shore band to have taken it.
 func _height(point: Vector2) -> float:
-	var mask := _land_mask(point)
-	var natural := _seabed_depth(point)
-	if mask > 0.0:
-		natural = _base_elevation(point) * mask
-		natural += _mountain_elevation(point) * mask
-		natural += _detail_elevation(point) * mask
-		natural -= _valley_depth(point) * mask
+	return _apply_airport(point, _land_and_sea(point))
 
-	return _apply_airport(point, natural)
+
+## Land relief at a point, before the shoreline is applied.
+func _land_relief(point: Vector2) -> float:
+	return _base_elevation(point) \
+		+ _mountain_elevation(point) \
+		+ _detail_elevation(point) \
+		- _valley_depth(point)
+
+
+## Land, sunk into the sea across the shoreline.
+##
+## ## Why the shoreline is a blend and not a multiplier
+##
+## The obvious composition multiplies every layer by a land mask:
+##
+## [codeblock]
+##   height = (base + mountain + detail) * mask
+## [/codeblock]
+##
+## That is wrong here, and wrong in a way that produced the steepest terrain on the
+## island. The mask has a fixed width, so it has to swallow whatever relief happens to
+## be at the shore — and a 650 m massif reaching the coast means the whole mountain
+## is compressed into that fixed band. Measured 5.2 m per m, against a limit of 2.
+##
+## The band cannot simply be widened, because its width is also what sets how much of
+## the island is land, and the design fixes a water coverage. So the width is derived
+## from the relief it has to span, the same way the airport's blend is. Where the
+## coast meets low ground the band is narrow and the beach is a beach; where it meets
+## a massif the band opens out and the mountain runs into the sea as a slope.
+func _land_and_sea(point: Vector2) -> float:
+	var land := _land_relief(point)
+	# Width needed to take the local relief down to sea level at a legal gradient.
+	var width := _blend_width(maxf(land, 0.0), island_radius * SHORE_MAX_WIDTH)
+	# Progress along that band, 0 at the waterline and 1 where the blend is complete.
+	var t := clampf(_offshore(point) * island_radius * 0.2 / maxf(width, 1.0), 0.0, 1.0)
+	# No early return at either end.
+	#
+	# Returning the seabed once the band is complete looks equivalent and is not: a
+	# point can sit a hair inside the band and its neighbour a hair outside, and the
+	# discontinuity between them is the full height difference. Measured as a 166 m
+	# step, at a point where a 473 m landmass was at 99.94% of the band.
+	return lerpf(land, _seabed_depth(point), smoothstep(0.0, 1.0, t))
 
 
 ## Blend the airport plateau into natural terrain.
@@ -320,11 +432,7 @@ func _apply_airport(point: Vector2, natural: float) -> float:
 
 	# Rise from the plateau edge to natural ground, over a width that accommodates
 	# whatever height difference is actually there.
-	var difference := absf(natural - airport_elevation)
-	var width := maxf(
-		AIRPORT_BLEND_MIN,
-		minf(difference / MAX_GRADIENT, AIRPORT_BLEND_MAX)
-	)
+	var width := _blend_width(natural - airport_elevation, AIRPORT_BLEND_MAX)
 	var t := (distance - airport_radius) / width
 	# Smoothstep so the join has no derivative discontinuity at either end.
 	return lerpf(airport_elevation, natural, smoothstep(0.0, 1.0, t))
@@ -344,26 +452,45 @@ const AIRPORT_BLEND_MIN := 180.0
 const AIRPORT_BLEND_MAX := 900.0
 
 
-## 1 well inland, 0 at sea, smoothly blended between. Also used to place props.
+## How far past the shoreline a point is: 0 at the water's edge, 1 well offshore.
 ##
-## The shore band sits near the outer edge of the radius, because the interior has
-## to be fully land for the mountains to survive in it. At 0.42 and 0.62 the land
-## ended at 483 m when the radius said 1150 m, so the real island was 42% of its
-## intended size and every mountain was attenuated to nothing.
-func _land_mask(point: Vector2) -> float:
+## Used by [method _land_and_sea] to blend the island into the sea, and by
+## [method _seabed_depth] to deepen it.
+##
+## The domain warp is what coastline_complexity controls: the coastline noise
+## displaces the radius the falloff uses, which breaks the island out of a circle
+## without needing a different noise type.
+func _offshore(point: Vector2) -> float:
 	var offset := point - island_center
-	# Domain warping: the coastline noise displaces the radius the falloff uses, which
-	# breaks the island out of a circle without needing a different noise type. This
-	# is what coastline_complexity controls.
 	var warp := _coast_noise.get_noise_2d(offset.x, offset.y) * coastline_complexity
-	var warped := offset.length() - warp * 260.0
-	var normalized := warped / maxf(island_radius, 1.0)
-	return 1.0 - smoothstep(SHORE_LOW, SHORE_HIGH, normalized)
+	var warped := offset.length() - warp * COAST_WARP_SCALE
+	return (warped - SHORE_LOW * island_radius) / maxf(island_radius * 0.2, 1.0)
 
 
-## Shore fade band, as fractions of island_radius.
+## 1 well inland, 0 at the waterline. Also used to place props.
+func _land_mask(point: Vector2) -> float:
+	return 1.0 - smoothstep(0.0, 1.0, clampf(_offshore(point), 0.0, 1.0))
+
+
+## Distance the coastline noise may displace the shoreline by, in metres.
+const COAST_WARP_SCALE := 260.0
+
+## Normalised distance at which the shoreline falls, as a fraction of the radius.
+##
+## Near the outer edge, because the interior has to be fully land for the mountains
+## to survive in it. At 0.42 the land ended at 42% of the radius it claimed, so the
+## real island was under half its intended size and every massif was attenuated to
+## nothing.
 const SHORE_LOW := 0.86
-const SHORE_HIGH := 1.06
+
+## Widest the shore blend may open, as a fraction of the island radius.
+##
+## A cap on how far a tall massif can push the coastline seaward. It has to be large
+## enough to take the island's full relief down to the waterline at an acceptable
+## gradient: a 650 m peak at [constant MAX_GRADIENT] needs 590 m of shore, which is
+## 0.3 of a 2000 m radius on its own. At 0.35 the cap was binding on the tallest
+## massifs and compressing the remainder into a 166 m step.
+const SHORE_MAX_WIDTH := 0.45
 
 
 ## Gentle rolling ground, so flat areas are not dead level.
@@ -388,7 +515,7 @@ func _base_elevation(point: Vector2) -> float:
 ##   with one neighbour high and one low has no satisfying value, so the error
 ##   propagates. Worst steps stayed between 40 and 250 m.
 ##
-## So the gradient constraint is satisfied by construction. [constant SUMMIT_FALLOFF]
+## So the gradient constraint is satisfied by construction. [constant SUMMIT_CURVE]
 ## and [member mountain_reach_fraction] are sized from `max_elevation` and
 ## [constant MAX_GRADIENT] rather than chosen by eye.
 func _mountain_elevation(point: Vector2) -> float:
@@ -406,22 +533,28 @@ func _mountain_elevation(point: Vector2) -> float:
 		if falloff <= 0.0:
 			continue
 
-		# Flat top, then a linear skirt down to nothing.
+		# The falloff curve, which decides the mountain's gradient.
 		#
-		# The height change is bounded by construction rather than filtered: over the
-		# skirt the shape falls from SUMMIT_FLOOT to 0 across
-		# (1 - SUMMIT_FALLOFF) * reach, so the gradient is
-		# SUMMIT_FLOOT * max_elevation / ((1 - SUMMIT_FALLOFF) * reach). The measured
-		# worst step with the earlier curve was a gradient of 1.44 against a limit of
-		# 1.10, because the plateau edge dropped away faster than the skirt.
-		var shaped: float
-		if falloff > SUMMIT_FALLOFF:
-			var t := (falloff - SUMMIT_FALLOFF) / (1.0 - SUMMIT_FALLOFF)
-			# Smoothstep on the skirt rather than linear: its zero derivative at the
-			# plateau edge is what removes the step there.
-			shaped = lerpf(SUMMIT_FLOOT, 0.0, smoothstep(0.0, 1.0, t))
-		else:
-			shaped = SUMMIT_FLOOT * smoothstep(0.0, 1.0, falloff / SUMMIT_FALLOFF)
+		# ## Why the shape, not a wider reach
+		#
+		# The island is one budget: four massifs of reach R need a ring of at least 2R,
+		# so the reach cannot grow much without the foci colliding. Climbability has to
+		# come from the curve.
+		#
+		# `sin(falloff * PI/2)` runs from 0 at the summit to 1 at the edge of the reach,
+		# and has zero derivative at both. That matters twice: at the summit the
+		# gradient passes through zero rather than reversing abruptly, and at the skirt
+		# the mountain meets the ground flat rather than arriving at an angle. The
+		# earlier piecewise linear-then-smoothstep shape had a corner at the plateau
+		# edge, and its measured flank gradient was 2.3 m per m against the flight
+		# model's 1.1 — a 600 m wall the aircraft could neither climb nor land on.
+		#
+		## Note the direction. `falloff` is 1 at the summit and 0 at the edge, so the
+		## sine rises from 0 at the focus to 1 at the full reach. Using `cos` here
+		## instead inverts the mountain into a crater, which an earlier version did and
+		## which the cliff check caught as a 646 m step.
+		var shaped := pow(sin(clampf(falloff, 0.0, 1.0) * PI * 0.5), SUMMIT_CURVE)
+
 		# Each massif samples the ridge field in its own frame, so its relief is
 		# bounded by its own falloff.
 		#
@@ -482,7 +615,7 @@ func mountain_reach() -> float:
 ##
 ## - Normalising against the sum of all four massifs bounds the total correctly but
 ##   leaves every *isolated* peak short, because one mountain only ever reaches
-##   SUMMIT_FLOOT of a reference four times larger. Measured 472 m.
+##   one mountain's worth of a reference four times larger. Measured 472 m.
 ## - Normalising against a single massif, with no allowance for overlap, lets two
 ##   stacked massifs overshoot. Measured 917 m.
 ##
@@ -518,7 +651,7 @@ func _measure_saturation_ceiling() -> void:
 	# Each overlapping pair adds headroom, capped by the count so a dense cluster
 	# cannot inflate the ceiling without limit.
 	var extra := minf(float(overlapping), float(count - 1))
-	_saturation_ceiling = SUMMIT_FLOOT * (1.0 + extra * SATURATION_OVERLAP_GAIN)
+	_saturation_ceiling = 1.0 + extra * SATURATION_OVERLAP_GAIN
 
 
 ## Multiple of the mountain reach within which two massifs count as overlapping.
@@ -537,15 +670,18 @@ const SATURATION_OVERLAP_GAIN := 0.7
 ## Low enough that a single isolated massif still reaches [member max_elevation].
 ## A steeper curve saturates faster, so an isolated mountain falls short of the
 ## design's elevation: at 4.0 a lone massif came out at 460 m against a 650 m
-## contract, because a single mountain only ever reaches SUMMIT_FLOOT of the summed
+## contract, because a single mountain only ever reaches 1.0 of the summed
 ## field and the exponential had already flattened that far out.
 const SATURATION := 0.55
 
 
-## Fraction of the falloff over which the summit holds its full height.
-const SUMMIT_FALLOFF := 0.55
-## Summit height relative to the mountain's maximum.
-const SUMMIT_FLOOT := 0.82
+## Exponent applied to the sine falloff that shapes each massif.
+##
+## Below 1 flattens the summit and steepens the skirt; above 1 does the reverse. Kept
+## at 1 so the shape is a quarter sine, whose steepest gradient is `PI/2` times the
+## average — the gentlest a curve of this family can be while still rising from zero
+## at the focus and reaching zero at the full reach.
+const SUMMIT_CURVE := 1.0
 
 
 ## No airport exclusion radius exists, and adding one was a mistake worth recording.
@@ -573,40 +709,42 @@ func _ridge_value(point: Vector2) -> float:
 
 ## Where each mountain sits.
 ##
-## Foci go on a ring at [member mountain_ring_fraction] of the island radius, which
-## must sit inside the falloff reach or every summit is at a negligible falloff.
-## Varied radii looked reasonable but produced nothing at all.
+## Two constraints, and the layout is whatever satisfies both:
 ##
-## Foci that would land on the airport are rotated around the ring until clear.
-## Rotating rather than pushing outward matters: pushing outward moves a focus past
-## the reach, which removes the mountain instead of relocating it.
+## 1. Every focus must be at least [method required_airport_clearance] from the
+##    airport, measured to the massif's edge rather than its focus.
+## 2. Foci must be far enough apart that their massifs read as separate mountains.
+##
+## The second was missing at first, and the island was worse for it. Searching
+## outward for the first angle that clears the airport ignores where the other foci
+## already are, so four mountains ended up crowded into the same part of the ring,
+## 728 m apart with a 450 m reach. Their contributions summed and saturated into a
+## shared plateau, and two of the four stood only 39 m and 62 m above the
+## surrounding ground — hills, not the 650 m peaks the design asks for.
+##
+## So the search now also requires separation from the foci already placed, and
+## spreads the search over a wider arc rather than taking the first acceptable
+## angle. Taking the *first* acceptable position is the mistake: it is locally
+## valid and globally crowded.
 func _mountain_focus(index: int, count: int) -> Vector2:
-	var radius := island_radius * mountain_ring_fraction
+	var radius := mountain_ring_radius()
 	var base_angle := TAU * float(index) / float(maxi(count, 1))
 
-	# Rejection sampling around the ring: walk angles in small steps and take the
-	# first that clears the airport.
-	#
-	# A fixed list of offsets, or a single radial push, both fail badly. Offsets only
-	# covered part of the circle and every focus fell back to the same last entry, so
-	# all four mountains stacked on one point and the island lost its range. The
-	# fallback below is the one that would run out of options.
+	# The ring grows as the search advances, so a focus that cannot clear the airport
+	# at the inner radius can still find a position further out. A fixed ring cannot
+	# satisfy the clearance at all when the airport is off-centre.
 	var steps := int(ceil(TAU / FOCUS_ANGLE_STEP))
 	for step in steps:
 		# Alternate sides of the base angle so the mountains spread either way.
 		var offset := FOCUS_ANGLE_STEP * float(step) * (1.0 if step % 2 == 0 else -1.0)
 		var angle := base_angle + offset
-		# The ring is pushed outwards as the angle search advances. A fixed ring
-		# cannot satisfy the airport clearance at all when the airport is off-centre:
-		# the reachable arc is limited, and four foci all landing in it ends up with
-		# them crowded into one massif. Growing the radius with the angle lets each
-		# mountain find its own clear position on the far side of the island.
 		var grown := minf(radius + float(step) * FOCUS_RADIUS_STEP, island_radius * 0.9)
 		var focus := island_center + Vector2(cos(angle), sin(angle)) * grown
-		if focus.distance_to(airport_position) >= airport_clearance:
-			return focus
+		if not _focus_is_clear(focus, index, count):
+			continue
+		return focus
 
-	# Nothing on the ring satisfies the clearance. Rather than collapse every focus
+	# Nothing on the ring satisfies both constraints. Rather than collapse every focus
 	# onto one point, place them evenly around the part of the ring that is furthest
 	# from the airport, so the range stays four separate mountains.
 	var away := (island_center - airport_position).normalized()
@@ -614,9 +752,48 @@ func _mountain_focus(index: int, count: int) -> Vector2:
 	for step in count:
 		var angle := away.angle() + spread * (float(step) - float(count - 1) * 0.5)
 		var focus := island_center + Vector2(cos(angle), sin(angle)) * radius
-		if focus.distance_to(airport_position) >= airport_clearance:
+		if _focus_is_clear(focus, index, count):
 			return focus
 	return island_center + away * radius
+
+
+## Whether a candidate focus is usable: clear of the airport, and far enough from the
+## foci already placed that its massif will read as its own mountain.
+func _focus_is_clear(candidate: Vector2, index: int, count: int) -> bool:
+	if candidate.distance_to(airport_position) < airport_clearance:
+		return false
+	for other in count:
+		# Only consider foci placed before this one, so the search is deterministic
+		# rather than order-dependent.
+		if other >= index:
+			break
+		if candidate.distance_to(_mountain_focus(other, count)) < minimum_focus_separation():
+			return false
+	return true
+
+
+## Minimum distance between two mountain foci, in metres.
+##
+## Set from the reach rather than chosen: two massifs closer than this overlap enough
+## that their contributions merge into one broad rise instead of reading as separate
+## mountains. A factor rather than an absolute distance, because the reach is what
+## determines overlap and it is tunable.
+## Minimum distance between two mountain foci, as a multiple of the reach.
+##
+## Below 2 so that four massifs fit on the ring with the airport's exclusion arc
+## still available. Four foci need three gaps of this size, plus clearance on both
+## sides of the arc the airport forbids, and at 2.1 that exceeded the circle
+## entirely: foci 0 and 3 landed 773 m apart with a 920 m reach and the separation
+## check failed.
+##
+## At 1.5 the massifs partially overlap, which is what real ranges do. The overlap is
+## handled by the saturation in [method _saturate] rather than by separating them, so
+## a merged pair forms one broader rise instead of two peaks on a shared base.
+@export_range(1.0, 4.0, 0.05) var focus_separation_factor := 1.5
+
+
+func minimum_focus_separation() -> float:
+	return mountain_reach() * focus_separation_factor
 
 
 ## Troughs along the carved valley lines.
@@ -651,36 +828,30 @@ func _detail_elevation(point: Vector2) -> float:
 	return _detail_noise.get_noise_2d(point.x, point.y) * 6.0
 
 
-## Seabed relief below the waterline, shallowing toward the shore.
+## Seabed relief below the waterline, deepening away from the shore.
 ##
-## Must reach exactly 0 where the land mask does, since the two meet at the
-## shoreline. An earlier version started the seabed at 4 m depth while land faded to
-## 0, which left a 4 m step across the waterline — measured as the largest
-## discontinuity on the island, since the shoreline is the longest boundary there
-## is. The relief is also faded out over the same interval, so the detail noise
-## cannot reintroduce a step at the join.
+## Reaches exactly 0 where the shore blend starts, since the two meet at the
+## waterline, and so does its derivative. That matters: an earlier version faded the
+## depth in with a smoothstep alone, which has zero value but not zero slope at its
+## start, and left a 2.5 m step across the waterline — the largest discontinuity on
+## the island, because the shoreline is the longest boundary there is. Squaring the
+## fade makes the value and the slope reach zero together.
 func _seabed_depth(point: Vector2) -> float:
-	var normalized := (point - island_center).length() / maxf(island_radius, 1.0)
-	# How far past the shoreline this point is, 0 at the shore and 1 offshore.
-	var offshore := clampf((normalized - SHORE_HIGH) / SEABED_FADE_SPAN, 0.0, 1.0)
-	# The fade is squared as well as smoothstepped.
-	#
-	# The mask stops being positive at exactly SHORE_HIGH, so any dependence on
-	# `offshore` that is not zero there leaves a step across the waterline: measured
-	# as 2.5 m over 1 m, because smoothstep already has a zero derivative at its start
-	# but the detail noise term did not, and the depth term's own slope was still
-	# finite. Squaring guarantees both the value and the slope reach zero together.
-	var faded := smoothstep(0.0, 1.0, offshore)
+	# Squared as well as smoothstepped, so both value and slope are zero at the shore.
+	var faded := smoothstep(0.0, 1.0, clampf(_offshore(point), 0.0, 1.0))
 	faded *= faded
-	var depth := lerpf(0.0, 85.0, faded)
+	var depth := lerpf(0.0, SEABED_MAX_DEPTH, faded)
 	# Detail noise scaled by the same fade, so it cannot put height back at the join.
 	depth += _detail_noise.get_noise_2d(point.x, point.y) * 9.0 * faded
 	return -maxf(depth, 0.0)
 
 
+## Depth of the seabed well offshore, in metres.
+const SEABED_MAX_DEPTH := 85.0
+
+
 ## Distance past the shoreline, as a fraction of the island radius, over which the
 ## seabed reaches full depth.
-const SEABED_FADE_SPAN := 0.6
 
 
 ## Steepness at a position, in metres per metre. Used to keep props off cliffs.

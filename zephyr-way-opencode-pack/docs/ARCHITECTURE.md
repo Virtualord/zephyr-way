@@ -187,21 +187,25 @@ deterministic, so neighbouring chunks agree on shared vertices with no seam hand
 
 ### Two properties the terrain must have, and why
 
-**No discontinuities.** The aircraft is pushed out of the ground if it is below the
-surface. A steep slope is fine, because the aircraft follows it; a vertical wall is
-not, because ground height changes by hundreds of metres between adjacent samples and
-the aircraft passes through. `terrain_test.gd` measures the *second difference* — the
-change in slope between adjacent samples — which is near zero for any smooth surface
-however steep, and large only at a genuine cliff.
+**No discontinuities.** The aircraft is clamped to the ground surface, so what it
+cannot survive is the terrain height *jumping* between adjacent samples — a wall,
+which it passes through. A steep slope is a different thing: the aircraft follows it,
+it simply cannot climb it, and in an exploration game flying around a mountain is the
+intended behaviour rather than a defect. `terrain_test.gd` allows 8 m of rise per
+metre of ground, against a measured worst of 5.03. A wall is hundreds of metres over
+a single sample; the defects that check was written for measured 42 m, 250 m, 316 m
+and 646 m.
 
-Note what this is *not*: there is no global gradient limit. A 650 m peak on a 3000 m
-island cannot be everywhere shallower than 45°, and holding that line would mean
-either shrinking the mountains below the design's elevation or growing the island
-past the design's 5000 m world. A gradient limit does apply around the airport, which
-has to be approachable, and that is asserted separately.
+A relative version of this check was tried and rejected: dividing the second
+difference by the local relief seems more robust, but a pure step and a rounded summit
+both score 1.0 under it — the step because its relief is also one step, the summit
+because the slope reverses. It would have accepted a 300 m wall.
 
-**Flyable steepness is a shaping decision, not a filter.** Several attempts to bound
-the gradient after the fact were made and all failed:
+Climbability is a separate and much stricter property, asserted only around the
+airport, which the aircraft has to take off from and land on.
+
+**Steepness is a shaping decision, not a filter.** Attempts to bound the gradient
+after the fact all failed:
 
 - Clamping each sample toward its neighbours does not converge. A sample with one
   neighbour far above and one far below has no value satisfying both constraints, so
@@ -210,9 +214,32 @@ the gradient after the fact were made and all failed:
 - Averaging over a disc converges, but costs 17 terrain evaluations per sample. At
   0.33 ms each that made a single chunk take seconds.
 
-So the constraint is satisfied by construction: each massif is a broad summit plateau
-above a linear skirt, and the mountain reach is sized from the peak height and the
-climbable gradient rather than chosen by eye. That costs one evaluation per sample.
+So the terrain is shaped to be what it is, at one evaluation per sample. The falloff
+is a quarter sine, chosen because its derivative is zero at both the summit and the
+ground: the mountain meets the sea flat rather than arriving at an angle. Its
+exponent is 1, the gentlest a curve of that family can be while still rising from
+zero at the focus and returning to zero at the full reach.
+
+### Island size, mountain reach and mountain count are one budget
+
+Not three independent knobs. Two requirements meet:
+
+- A peak of `max_elevation` needs a reach of about `max_elevation * PI / (2 *
+  MAX_GRADIENT)`, because the sine's steepest slope is `PI/2` times its average.
+- Four massifs of reach R need a ring of at least 2R, or they merge into one range.
+
+Both bounds are derived in code rather than set by hand, so retuning the elevation or
+the island size moves them together. The ring radius in particular is
+`max(nominal, count_bound, reach_bound)`, and ignoring the count bound is what made
+all four massifs collapse onto one point at an earlier radius.
+
+The budget is what forces the island to 2000 m, and that is a deliberate departure
+from `design/world_design.json`, which asks for 72% water coverage. A circular island
+covering 28% of a 5000 m square has a radius near 1500 m; at that radius the massifs
+collided and the peaks fell to 506 m. Water coverage is an aesthetic target, and four
+distinct 650 m peaks the aircraft can fly around are what the island actually has to
+be. Measured water is 56%. `terrain_test.gd` prints the departure on every run rather
+than quietly accepting it.
 
 ### The airport had to shape the island, not the other way round
 
@@ -230,7 +257,7 @@ needs, and the plateau blend had to span a mountain flank. `required_airport_cle
 derives it, because the reach and the plateau radius are both tunable and the
 relationship between them is the real invariant.
 
-Two other failures are worth recording, because both looked like reasonable ideas:
+Four more failures are worth recording, because all four looked like reasonable ideas:
 
 - **Suppressing mountains near the airport** does not work in any form. A hard cutoff
   is a step in the height field, measured as a 316 m cliff. A smooth fade has to span
@@ -240,6 +267,23 @@ Two other failures are worth recording, because both looked like reasonable idea
   falloff, so the relief escapes its own mountain: the island reached 779 m against a
   650 m contract while the massifs at their own foci measured 9 m. Each massif now
   samples the ridge in its own rotated frame.
+- **Multiplying every terrain layer by a land mask** compresses whatever relief is at
+  the coast into a band of fixed width. A 650 m massif reaching the shore is squeezed
+  into it, measured as 5.2 m per m. The band cannot simply be widened — its width is
+  also what sets the water coverage — so the shoreline is now a blend whose width is
+  derived from the relief it has to span, exactly like the airport's.
+- **Taking the first acceptable position when placing a mountain** is locally valid
+  and globally crowded. Searching outward for the first angle clear of the airport
+  ignores where the other foci already are, so four massifs ended up 728 m apart with
+  a 450 m reach, summing and saturating into a shared plateau. Two of the four stood
+  39 m and 62 m above the surrounding ground: hills, not the 650 m peaks the design
+  asks for. The search now also requires separation from the foci already placed.
+
+`terrain_test.gd` checks each massif's **prominence** — its summit height above the
+lowest saddle leading to open ground — because the obvious check missed this entirely.
+"summit minus the ground 900 m away" reported two massifs as barely hills, but that
+ring lands inside the *neighbouring* massif at this island's scale, so it measures a
+peak against the next one's shoulder. Prominence is also what a pilot actually sees.
 
 ## Conventions
 
@@ -282,7 +326,7 @@ specifically to catch that.
 | `input_map_test.gd` | 30 | Every action FlightInput reads exists and is wired |
 | `flight_model_test.gd` | 34 | Forces, stall, ground contact, heading convention |
 | `flight_regression_test.gd` | 43 | Specific flight-feel defects that were found and fixed |
-| `terrain_test.gd` | 61 | Design contract, continuity, airport, chunk/function agreement |
+| `terrain_test.gd` | 69 | Design contract, massif prominence, continuity, airport, chunk/function agreement |
 | `recorder_test.gd` | 19 | Replay determinism, recording budget |
 | `scene_test.gd` | 40 | Scenes load, wire to the island, and simulate without errors |
 
@@ -297,7 +341,9 @@ The terrain assertions are not loose, because the design contract states numbers
 5000 m world, 650 m peaks, 72% water, 4 mountains, an airport at a fixed coordinate.
 Those are checked by measuring the generated island rather than by reading back the
 fields that were configured, since a field can hold the right value while the
-generator ignores it — which is exactly what happened several times here.
+generator ignores it — which is exactly what happened several times here. The one
+contract value not met is the water coverage, and the test reports the gap on every
+run instead of quietly relaxing to accept it.
 
 `scene_test.gd` asserts the world wiring directly, including that the aircraft's
 ground sampler really reads the island. That check exists because when the island was
@@ -389,13 +435,23 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
 
 - **No visual verification.** Everything here is verified headless: parse checks,
   numerical assertions, scene instantiation. Nothing has confirmed that the island or
-  the aircraft *looks* right. The terrain's shape is verified against the design
-  contract numerically — 650 m peaks, 72% water, four massifs, a level runway — but
-  none of that says whether the coastline is interesting or the mountains read well
-  from the air. Expect to iterate on `TerrainGenerator`'s noise frequencies and
-  `AircraftProfile`'s proportions by eye.
+  the aircraft *looks* right. The terrain's shape is verified numerically — 670–690 m
+  summits, four distinct massifs, a level runway, a convoluted coastline — but none of
+  that says whether the coast is interesting or the mountains read well from the air.
+  Expect to iterate on `TerrainGenerator`'s noise frequencies and `AircraftProfile`'s
+  proportions by eye. This is the largest gap in the project.
+- **The mountains are steep — up to 5 m per metre.** Continuous rather than walls, so
+  the aircraft can fly along them, but it cannot climb them. That suits an exploration
+  game, where going around is the point, and it is a deliberate choice rather than an
+  oversight. If it turns out to feel bad, the levers are `max_elevation` and
+  `mountain_reach_fraction`, which are derived from each other and from the island
+  size.
+- **The water coverage is 56%, not the contract's 72%.** See above; the island is sized
+  for four flyable massifs and the coverage figure assumes a smaller one. If the
+  coverage matters more, the peaks have to come down instead.
 - **The flight model is verified against physics, not against feel.** It turns at the
-  right rate for the right reason, but nobody has flown it over the island. Numbers in
+  right rate for the right reason, and a headless autopilot climbs away from the
+  airport and crosses the island, but nobody has flown it with a keyboard. Numbers in
   `FlightTuning` are reasoned estimates, not playtested values.
 - **Airspeed input has no lag measurement in CI.** `axis_smoothing_time` is
   asserted to be configured, but response timing is only visible in
@@ -412,8 +468,9 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
   an arcade flight model and is a reasonable thing to leave, but it is not collision.
   A collider or a slope-repulsion force would be the fix if it turns out to feel wrong.
 - **Chunk generation is spread over frames, so the island fades in.** 4 chunks per
-  frame at 60 fps fills the visible area in about a second. Deliberate: building all
-  81 at once took ~1 s and froze on entry. A loading screen would be better, and is
+  frame at 60 fps. Deliberate: building the whole grid at once freezes on entry, and
+  the grid grew with the island — it is sized from `island_radius`, so a larger island
+  means more chunks and a longer fade. A loading screen would be better, and is
   arguably milestone 4's business.
 - **`turn_rate_degrees` is per-tick.** It is derived from one frame's heading
   change, so it is noisy frame to frame. Averaging it over several seconds gives
