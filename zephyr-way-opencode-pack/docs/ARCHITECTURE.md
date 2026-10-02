@@ -583,17 +583,23 @@ culled render.
 - **`MeshBuilder` normals carry float noise.** Face normals read back as
   `(0, 1, -0.000015)` rather than exact values. Harmless for rendering, but
   compare normals with a tolerance, as `procedural_test.gd` does.
-- **`project.godot` was rewritten once, destructively, and could not be reproduced.**
+- **`project.godot` is rewritten destructively by something in the verification run,
+  and it has still not been reproduced in isolation.**
   Godot replaced the file with its own generated version, which dropped the `[physics]`
   section, `renderer/rendering_method="forward_plus"`, vsync, the screen-space AA
   setting and the `[debug]` warning suppressions, and reformatted every input event.
-  Restored from git. It did not recur across `--editor --quit`, a test suite, a plain
-  `--quit`, a display-mode render, and a script run from outside the project — all five
-  left the file byte-identical. An earlier backup/restore guard was removed for exactly
-  this reason: the premise could not be reproduced, and a restore silently discards any
-  real edit made in between, which is worse than the problem it solves. So there is no
-  guard. `git diff project.godot` will show it if it happens again, and the content to
-  restore is in the history.
+  Restored from git. It has now happened twice, both times after a `./scripts/verify.sh`
+  run, and neither time could be reproduced on its own: `--editor --quit` twice from a
+  cold `.godot` and again warm, a test suite run, a plain `--quit`, a display-mode
+  render, and a script run from outside the project all left the file byte-identical.
+  Deleting `.godot` and re-running the editor, which is the state most likely to differ
+  from a normal run, also left it alone.
+
+  An earlier backup/restore guard was removed for exactly this reason: the premise could
+  not be reproduced, and a restore silently discards any real edit made in between,
+  which is worse than the problem it solves. So there is still no guard. The practical
+  consequence is to check `git status` after a verify run and `git checkout --
+  project.godot` if it moved; the correct content is in the history.
 - **Godot leak warnings on exit.** Every headless suite prints a few leaked RID
   warnings because the suites `quit()` mid-frame. `run_tests.sh` filters them.
   They are not memory leaks in the game.
