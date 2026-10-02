@@ -39,6 +39,18 @@ const SEA_BORDER_CHUNKS := 4
 
 var generator: TerrainGenerator
 
+## Altitude above which snow appears, in metres.
+##
+## Set from the island's peaks rather than picked. The peaks reach about 690 m, and at
+## 520 m the snow took the top quarter of every massif — but because the massifs fall
+## off as a sine, that whole upper region is gentle enough to pass the slope test, so
+## it was not a snow cap, it was the top third of the mountain rendered in
+## `snow.top`, which is near-white. The rendered shots showed pale domes instead of
+## mountains.
+##
+## At 600 m the snow is the top tenth: a cap, which is what reads as a mountain.
+@export var snow_line := 600.0
+
 ## Cached chunk origins. The grid is fixed by the island radius, so it is computed
 ## once: rebuilding the list on every aircraft movement was a per-frame allocation
 ## for no benefit.
@@ -157,7 +169,7 @@ func _add_face(tool: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, centre: Ve
 	# generator.slope_at(). That call takes four more terrain samples, and at two
 	# faces per cell across a whole island it dominated chunk generation.
 	var slope := _slope_from_normal(normal)
-	var color := face_color(generator, centre, slope)
+	var color := face_color(generator, centre, slope, snow_line)
 	tool.set_normal(normal)
 	tool.set_color(color)
 	tool.add_vertex(a)
@@ -184,7 +196,7 @@ static func _slope_from_normal(normal: Vector3) -> float:
 ##
 ## Palette groups rather than literal colours, so retinting the island means editing
 ## design/color_palette.json rather than this script.
-static func face_color(generator: TerrainGenerator, centre: Vector3, slope: float) -> Color:
+static func face_color(generator: TerrainGenerator, centre: Vector3, slope: float, snow_line: float) -> Color:
 	var height := centre.y
 
 	# Steep ground is bare rock regardless of altitude.
@@ -195,8 +207,16 @@ static func face_color(generator: TerrainGenerator, centre: Vector3, slope: floa
 		return rock.lerp(high, clampf(height / 450.0, 0.0, 0.6))
 
 	# Snow on the highest, flattest ground.
-	if height > SNOW_LINE:
-		return Palette.color("snow.top").lerp(Palette.color("snow.shade"), clampf(slope * 2.0, 0.0, 0.5))
+	#
+	# Biased towards the shade tone rather than split evenly, because the massif
+	# falloff is a sine and a face that is only just below the cliff threshold still
+	# catches a lot of light. A 50/50 mix of near-white and pale blue reads as pale
+	# grey from the air, which is what the first renders showed.
+	if height > snow_line:
+		return Palette.color("snow.shade").lerp(
+			Palette.color("snow.top"),
+			clampf(1.0 - slope * 3.0, 0.0, 1.0)
+		)
 
 	# Beach at the waterline.
 	if height < BEACH_HEIGHT:
@@ -217,7 +237,5 @@ static func face_color(generator: TerrainGenerator, centre: Vector3, slope: floa
 
 ## Ground slope above which terrain is treated as cliff, in metres per metre.
 const STEEP_SLOPE := 0.55
-## Altitude above which snow appears, in metres.
-const SNOW_LINE := 520.0
 ## Altitude below which sand appears, in metres.
 const BEACH_HEIGHT := 12.0
