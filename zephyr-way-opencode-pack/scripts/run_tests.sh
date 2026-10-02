@@ -28,7 +28,8 @@ tests/flight_model_test.gd
 tests/flight_regression_test.gd
 tests/terrain_test.gd
 tests/recorder_test.gd
-tests/scene_test.gd"
+tests/scene_test.gd
+tests/structure_test.gd"
 
 LOG="${TMPDIR:-/tmp}/zephyr-way-tests.$$.log"
 FAILED=""

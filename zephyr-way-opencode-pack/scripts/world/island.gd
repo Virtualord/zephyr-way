@@ -70,7 +70,20 @@ func _ready() -> void:
 	add_child(_chunk_root)
 
 	_build_sea()
+	_build_structures()
 	_queue_chunks_around(_focus)
+
+
+## The airport and the lighthouse, both built from code.
+##
+## Built after the sea and before the chunks are queued, so that anything looking at
+## the island's children sees a complete island rather than a bare one that fills in
+## over the following second. Neither structure samples terrain for its own height:
+## the airport sits on the plateau the generator has already flattened to a known
+## elevation, and the lighthouse reads the ground under its footprint once.
+func _build_structures() -> void:
+	add_child(Airport.build(generator))
+	add_child(Lighthouse.build(generator))
 
 
 func _process(_delta: float) -> void:

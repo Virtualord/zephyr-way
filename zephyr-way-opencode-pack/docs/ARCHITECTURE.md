@@ -511,6 +511,61 @@ and the footprint was sampled one 25 m step from the corner of each 500 m chunk 
 than across it. With both fixed it reports zero, and a direct comparison of mesh
 vertices against `height_at` at the same coordinates agrees to 0.0 m.
 
+## Milestone 05 — airport and landmark (in progress)
+
+### Built structures are merged, coloured in the vertex stream
+
+`StructureBuilder` accumulates coloured primitives into one flat-shaded `ArrayMesh`.
+Colour goes into the vertices rather than onto a material, which is the whole reason
+merging is worth it: a banded lighthouse tower and a marked runway are the same draw
+call. The airport is four meshes and the lighthouse two.
+
+One deliberate exception: the lighthouse's lantern is a separate mesh with its own
+emissive material, because it has to glow at dusk and everything else does not. That is
+the only place a second draw call is spent on purpose.
+
+### The runway rendered torn because every face was wound backwards
+
+**Resolved.** `StructureBuilder` emitted each triangle's corners in the order the face
+normal was derived from, `a, b, c`. The right-hand rule says `(b - a) x (c - a)` points
+out of a triangle running *counter-clockwise* as seen from that side -- and Godot counts
+a triangle as front-facing when its corners run **clockwise**. So every outward-facing
+surface the builder produced was a back face.
+
+The reason this took so long to find is that almost nothing looks wrong. A convex solid
+still draws: the eye sees the inside of its far wall instead of the outside of its near
+one, at nearly the same depth, with a perfectly correct stored normal. Boxes, cylinders
+and gable roofs all looked fine -- the buildings were visibly correct in every render
+taken before the fix. It only breaks where two surfaces meet, and the runway's underside
+is coplanar with the airport plateau at exactly 14.000 m. Once the real top face was
+culled away, the underside and the terrain fought each other for the depth buffer and
+the runway came out torn.
+
+Three observations from the debugging are worth keeping because each ruled something
+out and each was the wrong kind of evidence:
+
+- **The stored normals were all correct.** 330 upward faces on the runway, every one of
+  them pointing up. A normal attribute is a number the generator writes; the winding is
+  the corner order the rasteriser reads. They are independent, and a passing normal
+  check says nothing about culling. Both tests now exist and neither substitutes for the
+  other.
+- **Raising the pavement from 0.35 m to 3 m and then to 12 m produced a pixel-identical
+  image.** Not similar -- identical. An occlusion or depth-precision fault cannot behave
+  that way, because the geometry moved. What stayed put was the *underside*, which is
+  pinned to the plateau however far the top is raised.
+- **Subdividing the slab from two triangles to twenty-four changed nothing.** Correct,
+  and for the same reason.
+
+The convention was settled by measurement rather than by reading: `isolate_runway.gd`
+puts a quad wound each way beside the runway, in a scene containing nothing but a
+camera, one light and a flat background, and reads back which one survives `CULL_BACK`.
+Before the fix the down-wound quad was visible and the up-wound one was not; after it,
+the other way round.
+
+Verified: the runway renders complete from the aerial viewpoint that showed it torn,
+and in isolation it differs from a `CULL_DISABLED` render by 16 pixels out of 921,600,
+which is antialiasing on the edges.
+
 ## Known rough edges
 
 - **The aircraft has still never been flown by hand.** Everything below about the flight
@@ -538,17 +593,23 @@ vertices against `height_at` at the same coordinates agrees to 0.0 m.
 - **`MeshBuilder` normals carry float noise.** Face normals read back as
   `(0, 1, -0.000015)` rather than exact values. Harmless for rendering, but
   compare normals with a tolerance, as `procedural_test.gd` does.
-- **`project.godot` was rewritten once, destructively, and could not be reproduced.**
+- **`project.godot` is rewritten destructively by something in the verification run,
+  and it has still not been reproduced in isolation.**
   Godot replaced the file with its own generated version, which dropped the `[physics]`
   section, `renderer/rendering_method="forward_plus"`, vsync, the screen-space AA
   setting and the `[debug]` warning suppressions, and reformatted every input event.
-  Restored from git. It did not recur across `--editor --quit`, a test suite, a plain
-  `--quit`, a display-mode render, and a script run from outside the project — all five
-  left the file byte-identical. An earlier backup/restore guard was removed for exactly
-  this reason: the premise could not be reproduced, and a restore silently discards any
-  real edit made in between, which is worse than the problem it solves. So there is no
-  guard. `git diff project.godot` will show it if it happens again, and the content to
-  restore is in the history.
+  Restored from git. It has now happened twice, both times after a `./scripts/verify.sh`
+  run, and neither time could be reproduced on its own: `--editor --quit` twice from a
+  cold `.godot` and again warm, a test suite run, a plain `--quit`, a display-mode
+  render, and a script run from outside the project all left the file byte-identical.
+  Deleting `.godot` and re-running the editor, which is the state most likely to differ
+  from a normal run, also left it alone.
+
+  An earlier backup/restore guard was removed for exactly this reason: the premise could
+  not be reproduced, and a restore silently discards any real edit made in between,
+  which is worse than the problem it solves. So there is still no guard. The practical
+  consequence is to check `git status` after a verify run and `git checkout --
+  project.godot` if it moved; the correct content is in the history.
 - **Godot leak warnings on exit.** Every headless suite prints a few leaked RID
   warnings because the suites `quit()` mid-frame. `run_tests.sh` filters them.
   They are not memory leaks in the game.
