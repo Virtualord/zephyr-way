@@ -191,6 +191,13 @@ const FOCUS_RADIUS_STEP := 12.0
 ## Elevation of the plateau.
 @export var airport_elevation := 14.0
 
+## Where the coastal lighthouse stands, from design/world_design.json's landmarks.
+##
+## An export like the airport fields above rather than a read of the JSON at runtime:
+## the design file is a specification, and this is the same pattern the rest of the
+## world contract already follows here.
+@export var lighthouse_position := Vector2(1400.0, -700.0)
+
 ## Minimum distance from the airport to a mountain's focus, in metres.
 ##
 ## This is the distance to the *focus*, but the constraint is on the mountain's
