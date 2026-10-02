@@ -1,15 +1,26 @@
 extends SceneTree
-## Checks that every face a StructureBuilder produces points outward.
+## Checks two independent things about every face a StructureBuilder produces.
 ##
-## A face wound the wrong way is culled, and a culled face is invisible rather than
-## wrong. That is exactly what happened to the runway: from directly above it rendered
-## as torn fragments, and the only reason it looked solid with the terrain hidden was
-## that the underside was what survived. `CULL_DISABLED` "fixed" it too, which is why
-## this test exists -- the fix has to be the winding, not the cull mode.
+## **Normals.** The stored normal attribute must point out of the shape, so lighting is
+## right. This was correct all along.
 ##
-## The method is deliberately dumb: build each primitive inside out, and check that
-## every face normal points away from the primitive's own centre. A correctly wound
-## convex solid satisfies that for all of its faces.
+## **Winding.** The order the three corners are emitted in must be such that Godot
+## counts the triangle as front-facing. These are separate and were separate in the
+## failure: the runway carried 166 correct upward normals and every single one of its
+## triangles was still culled. A normal attribute is a number the generator writes; the
+## winding is what the rasteriser reads, and one does not imply the other.
+##
+## Godot's front faces are **clockwise on screen**. The right-hand rule says
+## (b - a) x (c - a) points out of a triangle that runs counter-clockwise as seen from
+## that side. So for a correct face, the right-hand-rule normal of the *emitted* order
+## must point **opposite** to the stored normal. That is the whole assertion, and it is
+## the one that fails when the winding is inverted.
+##
+## Convex solids still draw when the winding is wrong -- you see the inside of the far
+## wall instead of the outside of the near one, at nearly the same depth -- so nothing
+## looks obviously broken until two surfaces meet. The runway's underside is coplanar
+## with the plateau at exactly 14.000 m, and once the real top face was culled the
+## underside fought the terrain for the depth buffer.
 ##
 ##   godot --headless --path . --script res://tests/structure_test.gd
 
@@ -33,6 +44,14 @@ func _initialize() -> void:
 	_check_pyramid("pyramid", color)
 	_check_gable("gable roof", color)
 	_check_slab("slab", color)
+
+	# Winding is checked on the primitives too, and separately from their normals.
+	_expect_clockwise_front_faces("box at origin", _box_mesh(Basis.IDENTITY,
+		Vector3(4.0, 2.0, 6.0), Transform3D.IDENTITY))
+	_expect_clockwise_front_faces("cylinder, tapered", _cylinder_mesh(7.0, 3.0, 12.0, 10))
+	_expect_clockwise_front_faces("pyramid", _pyramid_mesh())
+	_expect_clockwise_front_faces("gable roof", _gable_mesh())
+	_expect_clockwise_front_faces("slab", _slab_mesh())
 
 	# The real geometry, not just the primitives: the runway is the surface that
 	# actually failed, and a primitive-level check would not have caught it if the
@@ -94,13 +113,19 @@ func _check_real_geometry() -> void:
 	_check("runway has geometry", not runway.is_empty(),
 		"%d triangles" % runway.triangle_count())
 	_expect_upward_faces(runway, "runway surface")
+	_expect_clockwise_front_faces("runway", runway.build())
+
+	var buildings := Airport._buildings(generator.runway_length)
+	_expect_clockwise_front_faces("airport buildings", buildings.build())
+	var lights := Airport._approach_lights(generator.runway_length)
+	_expect_clockwise_front_faces("approach lights", lights.build())
 
 	var apron := Airport._apron(generator.runway_length)
 	_expect_upward_faces(apron, "apron surface")
 
-	var lights := Airport._approach_lights(generator.runway_length)
-	_check("approach lights have geometry", not lights.is_empty(),
-		"%d triangles" % lights.triangle_count())
+	var light_masts := Airport._approach_lights(generator.runway_length)
+	_check("approach lights have geometry", not light_masts.is_empty(),
+		"%d triangles" % light_masts.triangle_count())
 
 
 ## Assert that the builder's upward-facing faces actually point up.
@@ -152,6 +177,83 @@ func _expect_outward(builder: StructureBuilder, label: String) -> void:
 				worst = "at %v normal %v" % [verts[i], normals[i]]
 	_check("%s faces outward" % label, inverted == 0,
 		"%d of %d faces point inward, %s" % [inverted, normals.size(), worst])
+
+
+## Assert that every triangle is wound so Godot counts it as a FRONT face.
+##
+## The check is on the emitted corner order, read straight out of the buffer, and it is
+## deliberately *not* the same test as [method _expect_outward]. This one would pass on
+## the broken runway; the normals one also would. Neither catches the other, which is
+## the entire reason both exist.
+func _expect_clockwise_front_faces(label: String, mesh: ArrayMesh) -> void:
+	if mesh == null:
+		_check("%s winding is front-facing" % label, false, "no mesh")
+		return
+	var arrays := mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var stored: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var raw_index: Variant = arrays[Mesh.ARRAY_INDEX]
+	var indices: PackedInt32Array = [] if raw_index == null else raw_index
+	var count: int = indices.size() / 3 if indices.size() > 0 else verts.size() / 3
+
+	var front_facing := 0
+	var back_facing := 0
+	var degenerate := 0
+	var worst := ""
+	for i in count:
+		var ia: int = indices[i * 3] if indices.size() > 0 else i * 3
+		var ib: int = indices[i * 3 + 1] if indices.size() > 0 else i * 3 + 1
+		var ic: int = indices[i * 3 + 2] if indices.size() > 0 else i * 3 + 2
+		# Right-hand rule over the order actually emitted.
+		var geometric := (verts[ib] - verts[ia]).cross(verts[ic] - verts[ia])
+		if geometric.length() < 0.000001:
+			degenerate += 1
+			continue
+		# Must oppose the stored normal, because front is clockwise and the right-hand
+		# rule describes the counter-clockwise direction.
+		if geometric.normalized().dot(stored[ia].normalized()) < 0.0:
+			front_facing += 1
+		else:
+			back_facing += 1
+			if worst.is_empty():
+				worst = "first at corners %d,%d,%d" % [ia, ib, ic]
+
+	_check("%s winding is front-facing" % label, back_facing == 0,
+		"%d front, %d back, %d degenerate, %s" % [
+			front_facing, back_facing, degenerate, worst])
+
+
+func _box_mesh(basis: Basis, size: Vector3, xform: Transform3D) -> ArrayMesh:
+	var builder := StructureBuilder.new()
+	builder.box(xform, size, Color.WHITE)
+	return builder.build()
+
+
+func _cylinder_mesh(r_bottom: float, r_top: float, height: float, sides: int) -> ArrayMesh:
+	var builder := StructureBuilder.new()
+	builder.cylinder(Transform3D(Basis.from_euler(Vector3(0.2, 1.1, 0.5)),
+		Vector3(-40.0, 12.0, 77.0)), r_bottom, r_top, height, Color.WHITE, sides, true, true)
+	return builder.build()
+
+
+func _pyramid_mesh() -> ArrayMesh:
+	var builder := StructureBuilder.new()
+	builder.pyramid(Transform3D(Basis.from_euler(Vector3(0.0, 0.7, 0.0)),
+		Vector3(10.0, -5.0, 20.0)), Vector2(9.0, 7.0), 8.0, Color.WHITE)
+	return builder.build()
+
+
+func _gable_mesh() -> ArrayMesh:
+	var builder := StructureBuilder.new()
+	builder.gable_roof(Basis.from_euler(Vector3(0.0, 0.35, 0.0)),
+		Vector3(0.0, 3.0, 0.0), Vector2(12.0, 8.0), 5.0, 1.0, Color.WHITE)
+	return builder.build()
+
+
+func _slab_mesh() -> ArrayMesh:
+	var builder := StructureBuilder.new()
+	builder.slab(Basis.IDENTITY, Vector3.ZERO, Vector2(10.0, 6.0), Color.WHITE, true)
+	return builder.build()
 
 
 ## Every face must point up. For a single horizontal quad that is the whole question.
