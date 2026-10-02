@@ -524,37 +524,47 @@ One deliberate exception: the lighthouse's lantern is a separate mesh with its o
 emissive material, because it has to glow at dusk and everything else does not. That is
 the only place a second draw call is spent on purpose.
 
-### The runway renders torn, and I do not know why
+### The runway rendered torn because every face was wound backwards
 
-**Open. Not fixed. Do not call this milestone done on the strength of the tests.**
+**Resolved.** `StructureBuilder` emitted each triangle's corners in the order the face
+normal was derived from, `a, b, c`. The right-hand rule says `(b - a) x (c - a)` points
+out of a triangle running *counter-clockwise* as seen from that side -- and Godot counts
+a triangle as front-facing when its corners run **clockwise**. So every outward-facing
+surface the builder produced was a back face.
 
-From above, the runway renders as torn fragments rather than a strip. What has been
-established, and what has been ruled out:
+The reason this took so long to find is that almost nothing looks wrong. A convex solid
+still draws: the eye sees the inside of its far wall instead of the outside of its near
+one, at nearly the same depth, with a perfectly correct stored normal. Boxes, cylinders
+and gable roofs all looked fine -- the buildings were visibly correct in every render
+taken before the fix. It only breaks where two surfaces meet, and the runway's underside
+is coplanar with the airport plateau at exactly 14.000 m. Once the real top face was
+culled away, the underside and the terrain fought each other for the depth buffer and
+the runway came out torn.
 
-- *Not the mesh.* With the terrain hidden the runway renders solid and continuous, and
-  its bounding box is the full 46 x 850 m. Every triangle is present.
-- *Not the terrain.* All 507 chunk-mesh vertices inside the runway footprint sit at
-  exactly 14.000 m, matching `height_at`, and the runway is above them.
-- *Not depth precision.* Raising the pavement from 0.35 m to 3.0 m and then to 12.0 m
-  produced a **pixel-identical** image each time. An occlusion or depth problem cannot
-  behave that way.
-- *Not the triangle size.* Subdividing the slab from two triangles to 24 segments
-  changed nothing.
-- *Not the winding, as far as the suite can tell.* `structure_test.gd` measures 330
-  upward faces on the runway and every one points up.
-- *It is culling.* Setting the runway material to `CULL_DISABLED` renders it complete
-  and correct: centreline, threshold bars, aim points, edge lines, apron, buildings and
-  approach lights all present.
+Three observations from the debugging are worth keeping because each ruled something
+out and each was the wrong kind of evidence:
 
-So the geometry is right, the normals are right, and back-face culling still removes
-part of it. `CULL_DISABLED` masks the symptom and doubles the fill cost, and shipping it
-as a "fix" would be exactly the unverified workaround this project does not accept. The
-camera's near plane was raised from Godot's 0.05 m default as a genuine, separately
-measured improvement, but it is not the cause: the tearing survived that change too.
+- **The stored normals were all correct.** 330 upward faces on the runway, every one of
+  them pointing up. A normal attribute is a number the generator writes; the winding is
+  the corner order the rasteriser reads. They are independent, and a passing normal
+  check says nothing about culling. Both tests now exist and neither substitutes for the
+  other.
+- **Raising the pavement from 0.35 m to 3 m and then to 12 m produced a pixel-identical
+  image.** Not similar -- identical. An occlusion or depth-precision fault cannot behave
+  that way, because the geometry moved. What stayed put was the *underside*, which is
+  pinned to the plateau however far the top is raised.
+- **Subdividing the slab from two triangles to twenty-four changed nothing.** Correct,
+  and for the same reason.
 
-What would settle it: rendering the runway mesh alone from this viewpoint with a
-wireframe or single-sided override and comparing triangle by triangle against the
-culled render.
+The convention was settled by measurement rather than by reading: `isolate_runway.gd`
+puts a quad wound each way beside the runway, in a scene containing nothing but a
+camera, one light and a flat background, and reads back which one survives `CULL_BACK`.
+Before the fix the down-wound quad was visible and the up-wound one was not; after it,
+the other way round.
+
+Verified: the runway renders complete from the aerial viewpoint that showed it torn,
+and in isolation it differs from a `CULL_DISABLED` render by 16 pixels out of 921,600,
+which is antialiasing on the edges.
 
 ## Known rough edges
 
