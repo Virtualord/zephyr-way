@@ -50,6 +50,14 @@ extends Camera3D
 ## camera inside the terrain.
 @export_range(0.0, 20.0, 0.1) var minimum_height: float = 1.6
 
+## When true the camera stops following the aircraft and holds its own transform.
+##
+## For looking at the world rather than the aircraft: a terrain review needs a
+## viewpoint 3 km up, and a chase camera will drag it back behind the plane every
+## frame. Set from code rather than bound to a key, since it is a review tool and not
+## something to ship in the cockpit.
+var detached := false
+
 var _aim_point := Vector3.ZERO
 var _initialised := false
 
@@ -73,6 +81,10 @@ func snap_to_target() -> void:
 func _process(delta: float) -> void:
 	var state := _state()
 	if state == null:
+		return
+	# Detached: the camera holds whatever pose it was given and ignores the aircraft.
+	# Used for art review, where the subject is the world rather than the plane.
+	if detached:
 		return
 	if not _initialised:
 		snap_to_target()
