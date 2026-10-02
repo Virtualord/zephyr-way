@@ -54,6 +54,7 @@ func _initialize() -> void:
 	_check_aircraft(main)
 	_check_airframe(main)
 	_check_camera(main)
+	_check_landmarks(main)
 	# Awaited, because stepping frames suspends and the remaining checks would
 	# otherwise run after _finish().
 	await _check_steps(main)
@@ -287,6 +288,79 @@ func _find_any_camera(node: Node) -> Camera3D:
 		if found != null:
 			return found
 	return null
+
+
+## The airport and the lighthouse, as the island actually built them.
+##
+## Milestone 05. These are the first pieces of built structure in the world, and the
+## first thing a scene check can say about them is that they exist and are not empty:
+## a builder that silently produced nothing would leave the island looking exactly as it
+## did before, which is the failure mode numeric checks are worst at catching.
+func _check_landmarks(main: Node) -> void:
+	var world := main.get_node_or_null(^"Island") as Island
+	if world == null:
+		_check("airport is present", false, "no island")
+		return
+	var airport := world.get_node_or_null(^"Airport")
+	_check("airport is present", airport != null)
+	var lighthouse := world.get_node_or_null(^"Lighthouse")
+	_check("lighthouse is present", lighthouse != null)
+	if airport == null or lighthouse == null:
+		return
+
+	var airport_tris := _triangle_total(airport)
+	_check("airport has geometry", airport_tris > 400, "%d triangles" % airport_tris)
+	var lighthouse_tris := _triangle_total(lighthouse)
+	_check("lighthouse has geometry", lighthouse_tris > 200, "%d triangles" % lighthouse_tris)
+
+	# Both must sit on the surface, not float above it or sink into it. The airport
+	# is on the flattened plateau; the lighthouse is on a headland and reads the ground
+	# under itself.
+	var generator := world.generator
+	var runway := airport.get_node_or_null(^"Runway") as MeshInstance3D
+	if runway != null:
+		var centre := runway.global_position
+		_check("airport sits on the plateau",
+			absf(centre.y - generator.airport_elevation) < 1.0,
+			"airport at %.2f m, plateau at %.2f m" % [
+				centre.y, generator.airport_elevation])
+	var tower := lighthouse.get_node_or_null(^"Tower") as MeshInstance3D
+	if tower != null:
+		var base := tower.global_position
+		var ground := generator.height_at(base.x, base.z)
+		_check("lighthouse sits on the ground", absf(base.y - ground) < 4.0,
+			"base at %.2f m, ground at %.2f m" % [base.y, ground])
+
+	# The lighthouse is a coastal landmark: it has to be near the sea to mean anything.
+	var site := generator.lighthouse_position
+	var shore := _distance_to_sea(generator, site)
+	_check("lighthouse is coastal", shore < 600.0, "sea %.0f m away" % shore)
+
+
+func _triangle_total(node: Node) -> int:
+	var total := 0
+	for child in node.get_children():
+		var mi := child as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			var verts: PackedVector3Array = mi.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			total += verts.size() / 3
+		total += _triangle_total(child)
+	return total
+
+
+## How far the ground stays above sea level from a point along a bearing.
+func _distance_to_sea(generator: TerrainGenerator, at: Vector2) -> float:
+	var nearest := 2600.0
+	for i in 12:
+		var bearing := TAU * float(i) / 12.0
+		var direction := Vector2(cos(bearing), sin(bearing))
+		var step := 20.0
+		while step < nearest:
+			if generator.height_at(at.x + direction.x * step, at.y + direction.y * step) <= 0.0:
+				nearest = step
+				break
+			step += 20.0
+	return nearest
 
 
 func _check_aircraft(main: Node) -> void:
