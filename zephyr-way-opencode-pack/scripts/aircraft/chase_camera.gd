@@ -64,6 +64,20 @@ var _initialised := false
 
 func _ready() -> void:
 	fov = idle_fov
+	# Godot's default far plane is 4000 m, which cuts the world off in a hard
+	# straight line well short of the horizon: from a camera a few hundred metres up
+	# the sea simply stops and the sky shows past it, which reads as the ocean ending
+	# rather than as a clipping plane. Set past the fog's full density so the water
+	# fades out before it can be cut.
+	far = visibility_range
+
+
+## How far the camera can see, in metres.
+##
+## Beyond the atmosphere's fog end (11000 m) everything is fully fogged, so drawing
+## further only costs depth precision. Kept as an export so a review camera can be
+## pulled back without touching the cockpit's default.
+@export var visibility_range := 20000.0
 
 
 ## Snap the camera to its ideal pose with no smoothing. Call after a teleport or
