@@ -157,17 +157,89 @@ function serve both.
 
 ## World
 
-`TestEnvironment` is the flat test bed milestone 1 asks for, and it is also the
-terrain height authority. That role is why it exposes:
+The world is a scene that exposes one function:
 
 ```gdscript
 func ground_height_at(position: Vector3) -> float:
 ```
 
-`AircraftController` samples this through a `Callable`. Replacing the flat world
-with real terrain is a change to this one function; the flight model already
-handles arbitrary ground heights and has a test asserting exactly that
-(`terrain pushes the aircraft to gear height`).
+`AircraftController` samples this through a `Callable`, and that is the entire
+contract between the world and the flight model. Milestone 1's `TestEnvironment`
+implemented it as a flat plane at zero; milestone 3's `Island` implements it as
+generated terrain. The flight model was not changed to accommodate the terrain,
+which is the point of the boundary.
+
+`Island` is three parts, split because they change for different reasons:
+
+| Part | Role |
+| --- | --- |
+| `TerrainGenerator` | The height and biome function. Pure maths, no nodes. |
+| `TerrainBuilder` | Turns the function into chunked, flat-shaded, vertex-coloured meshes. |
+| `IslandAtmosphere` | Sun, sky and fog. Separate because it has nothing to do with terrain. |
+
+### The terrain is a function, not mesh data
+
+`TerrainGenerator.height_at()` is the single source of truth. The mesh is built from
+it and the aircraft samples it, so the visible surface and the landing surface cannot
+disagree. Sampling height at an arbitrary point is also what makes terrain
+interactive — the aircraft needs it every physics tick — and it makes generation
+deterministic, so neighbouring chunks agree on shared vertices with no seam handling.
+
+### Two properties the terrain must have, and why
+
+**No discontinuities.** The aircraft is pushed out of the ground if it is below the
+surface. A steep slope is fine, because the aircraft follows it; a vertical wall is
+not, because ground height changes by hundreds of metres between adjacent samples and
+the aircraft passes through. `terrain_test.gd` measures the *second difference* — the
+change in slope between adjacent samples — which is near zero for any smooth surface
+however steep, and large only at a genuine cliff.
+
+Note what this is *not*: there is no global gradient limit. A 650 m peak on a 3000 m
+island cannot be everywhere shallower than 45°, and holding that line would mean
+either shrinking the mountains below the design's elevation or growing the island
+past the design's 5000 m world. A gradient limit does apply around the airport, which
+has to be approachable, and that is asserted separately.
+
+**Flyable steepness is a shaping decision, not a filter.** Several attempts to bound
+the gradient after the fact were made and all failed:
+
+- Clamping each sample toward its neighbours does not converge. A sample with one
+  neighbour far above and one far below has no value satisfying both constraints, so
+  the rule degenerates and the error propagates. Worst steps stayed between 40 m and
+  250 m no matter how the rule was refined.
+- Averaging over a disc converges, but costs 17 terrain evaluations per sample. At
+  0.33 ms each that made a single chunk take seconds.
+
+So the constraint is satisfied by construction: each massif is a broad summit plateau
+above a linear skirt, and the mountain reach is sized from the peak height and the
+climbable gradient rather than chosen by eye. That costs one evaluation per sample.
+
+### The airport had to shape the island, not the other way round
+
+The design fixes the airport at (-850, 420) and the peaks at 650 m. Getting both onto
+one island took several rounds, and the constraint that decided the layout is:
+
+```
+airport_clearance >= mountain_reach + airport_radius + blend + margin
+```
+
+That is a distance to a mountain's *focus*, but a massif extends a full reach beyond
+its focus, so the clearance that matters is measured to the massif's *edge*. Confusing
+the two put summits 806 m from the runway centre, well inside the 1130 m the approach
+needs, and the plateau blend had to span a mountain flank. `required_airport_clearance()`
+derives it, because the reach and the plateau radius are both tunable and the
+relationship between them is the real invariant.
+
+Two other failures are worth recording, because both looked like reasonable ideas:
+
+- **Suppressing mountains near the airport** does not work in any form. A hard cutoff
+  is a step in the height field, measured as a 316 m cliff. A smooth fade has to span
+  the mountain's whole reach, which at this island's scale is wider than the island,
+  so it faded out every peak. The layout solves this by relocating the foci instead.
+- **One shared world-space ridge field** lets ridge crests fall outside every focus's
+  falloff, so the relief escapes its own mountain: the island reached 779 m against a
+  650 m contract while the massifs at their own foci measured 9 m. Each massif now
+  samples the ridge in its own rotated frame.
 
 ## Conventions
 
@@ -210,8 +282,9 @@ specifically to catch that.
 | `input_map_test.gd` | 30 | Every action FlightInput reads exists and is wired |
 | `flight_model_test.gd` | 34 | Forces, stall, ground contact, heading convention |
 | `flight_regression_test.gd` | 43 | Specific flight-feel defects that were found and fixed |
+| `terrain_test.gd` | 61 | Design contract, continuity, airport, chunk/function agreement |
 | `recorder_test.gd` | 19 | Replay determinism, recording budget |
-| `scene_test.gd` | 28 | Scenes load, wire together, and simulate without errors |
+| `scene_test.gd` | 40 | Scenes load, wire to the island, and simulate without errors |
 
 Suites run as separate Godot processes because each one quits the engine itself.
 
@@ -219,6 +292,18 @@ The flight assertions are deliberately loose. They guard against regressions lik
 inverted lift or a stall that never fires, not against specific handling numbers,
 which are a design decision rather than a bug. A test that fails when the game
 feels different is a test that will get deleted.
+
+The terrain assertions are not loose, because the design contract states numbers:
+5000 m world, 650 m peaks, 72% water, 4 mountains, an airport at a fixed coordinate.
+Those are checked by measuring the generated island rather than by reading back the
+fields that were configured, since a field can hold the right value while the
+generator ignores it — which is exactly what happened several times here.
+
+`scene_test.gd` asserts the world wiring directly, including that the aircraft's
+ground sampler really reads the island. That check exists because when the island was
+first added, `Main` never resolved the world: the aircraft spawned at the origin,
+assumed flat ground, and flew over nothing. Nothing errored. Wiring bugs in a scene
+file are invisible to every other suite, so they are asserted where the scene is.
 
 `flight_analysis.gd` is deliberately outside this list: it asserts almost nothing
 and simply measures. Run it before and after a tuning change to compare envelopes.
@@ -247,9 +332,11 @@ would not.
 
 Practical notes on where new code tends to go.
 
-**A new world feature** (ocean, terrain, airport, props) becomes a sibling scene
-under `scenes/world/` with its own script, instanced into `Main.tscn` beside
-`TestEnvironment`. It should not modify the flight model.
+**A new world feature** (ocean, airport, props) becomes a sibling scene under
+`scenes/world/` with its own script, instanced into `Main.tscn` beside `Island`. It
+should not modify the flight model. Anything that adds height to the world goes into
+`TerrainGenerator`, not into a mesh, or the aircraft will land somewhere other than
+where the ground appears.
 
 **A new aircraft** needs a new `AircraftProfile` `.tres` and nothing else. If it
 needs different behaviour rather than different shape, add a field to the profile
@@ -269,19 +356,29 @@ in `flight_regression_test.gd`, the change is wrong, not the test.
 **A new input action** goes in `scripts/core/generate_input_map.py`, then re-run
 that script. Do not hand-edit `project.godot`.
 
-**World terrain** replaces `TestEnvironment.ground_height_at()`. Keep the
-signature stable; the flight model depends on it.
+**World terrain** lives in `TerrainGenerator`. Keep `ground_height_at()`'s signature
+stable; the flight model depends on it.
+
+**Retuning terrain** means editing the exported fields on `TerrainGenerator` and
+running `terrain_test.gd`. The design-contract assertions there are the measure, and
+they are the reason several of those fields exist at their current values: a comment
+on a number is a claim, a test is evidence.
 
 ## What is deliberately absent
 
-Milestone 1 is a vertical slice, not a game. These are absent on purpose, and
-`PROMPT_FIRST.md` lists them as out of scope: terrain, ocean, missions, HUD,
+Milestone 3 is a playable island, not a game. These are absent on purpose, per the
+milestone prompts: ocean shading, airport, runway, props, villages, missions, HUD,
 menus, audio, save state, day/night.
 
 There are also no autoloads. Every service so far is scene-local, and per
 `AGENTS.md` autoloads are for genuinely global state — which does not exist yet.
 `[autoload]` in `project.godot` is empty and should stay that way until something
 genuinely needs to outlive a scene.
+
+The sea is a flat translucent plane rather than a stylized ocean, and
+`IslandAtmosphere`'s fog is a depth fog tuned by eye. Both are milestone 4's work;
+they are here so the coastline reads as a coastline rather than the edge of a
+plateau.
 
 Nothing renders a HUD yet, which means flight data is currently only observable
 by reading `FlightState` in the debugger. That is the main reason to expect the
@@ -291,11 +388,14 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
 ## Known rough edges
 
 - **No visual verification.** Everything here is verified headless: parse checks,
-  numerical assertions, scene instantiation. Nothing has confirmed the aircraft
-  *looks* right. Expect to iterate on the airframe proportions by eye, and expect
-  `AircraftProfile` to be where those fixes land.
-- **The flight model is verified against physics, not against feel.** It now turns
-  at the right rate for the right reason, but nobody has flown it. Numbers in
+  numerical assertions, scene instantiation. Nothing has confirmed that the island or
+  the aircraft *looks* right. The terrain's shape is verified against the design
+  contract numerically — 650 m peaks, 72% water, four massifs, a level runway — but
+  none of that says whether the coastline is interesting or the mountains read well
+  from the air. Expect to iterate on `TerrainGenerator`'s noise frequencies and
+  `AircraftProfile`'s proportions by eye.
+- **The flight model is verified against physics, not against feel.** It turns at the
+  right rate for the right reason, but nobody has flown it over the island. Numbers in
   `FlightTuning` are reasoned estimates, not playtested values.
 - **Airspeed input has no lag measurement in CI.** `axis_smoothing_time` is
   asserted to be configured, but response timing is only visible in
@@ -306,9 +406,15 @@ judge, and `tests/flight_recorder.gd` exists partly to compensate.
 - **Godot leak warnings on exit.** Every headless suite prints a few leaked RID
   warnings because the suites `quit()` mid-frame. `run_tests.sh` filters them.
   They are not memory leaks in the game.
-- **No collision geometry.** The aircraft has no collider. That is correct for a
-  flight model driven by terrain height, but it means flying through a mountain
-  is possible until terrain milestone 3 lands.
+- **The aircraft has no collider.** It is clamped to the terrain surface instead,
+  which stops it sinking but does not stop it flying *into* a mountainside: it will
+  follow the slope down and stop rather than bouncing off. That reads acceptably for
+  an arcade flight model and is a reasonable thing to leave, but it is not collision.
+  A collider or a slope-repulsion force would be the fix if it turns out to feel wrong.
+- **Chunk generation is spread over frames, so the island fades in.** 4 chunks per
+  frame at 60 fps fills the visible area in about a second. Deliberate: building all
+  81 at once took ~1 s and froze on entry. A loading screen would be better, and is
+  arguably milestone 4's business.
 - **`turn_rate_degrees` is per-tick.** It is derived from one frame's heading
   change, so it is noisy frame to frame. Averaging it over several seconds gives
   the true rate; `flight_analysis.gd` shows the difference.

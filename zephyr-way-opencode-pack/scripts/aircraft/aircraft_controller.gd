@@ -139,6 +139,15 @@ func _connect_ground_sampler() -> void:
 		push_warning("AircraftController: ground sampler '%s' has no ground_height_at() method." % sampler.name)
 
 
+## The callable that reports terrain height, if one is connected.
+##
+## Exposed so the scene wiring can be tested. Whether the aircraft is actually
+## sampling the island rather than assuming flat ground is invisible from the flight
+## model alone: both behave identically until the terrain has relief.
+func ground_height_sampler() -> Callable:
+	return _model.ground_height_sampler if _model != null else Callable()
+
+
 func _ground_height_at(position: Vector3) -> float:
 	if _model != null and _model.ground_height_sampler.is_valid():
 		return float(_model.ground_height_sampler.call(position))

@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/island.gd" id="1_island"]
+[ext_resource type="Script" path="res://scripts/world/island_atmosphere.gd" id="2_atmosphere"]
+
+[node name="Island" type="Node3D"]
+script = ExtResource("1_island")
+
+[node name="Atmosphere" type="Node3D" parent="."]
+script = ExtResource("2_atmosphere")
