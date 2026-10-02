@@ -44,6 +44,7 @@ func _initialize() -> void:
 	await _settle()
 
 	_check_environment(main)
+	_check_world_wiring(main)
 	_check_aircraft(main)
 	_check_airframe(main)
 	_check_camera(main)
@@ -61,17 +62,109 @@ func _settle() -> void:
 		await process_frame
 
 
+## The world provides terrain and lighting.
+##
+## The flat TestEnvironment this checked was replaced by the island in milestone 03,
+## so the ground is no longer flat. What still has to hold is that the world is
+## present, that it reports terrain, and that the island's sun is above the horizon.
 func _check_environment(main: Node) -> void:
-	var environment := main.get_node_or_null(^"TestEnvironment") as TestEnvironment
-	_check("environment is present", environment != null)
-	if environment == null:
+	var world := main.get_node_or_null(^"Island") as Island
+	_check("island is present", world != null)
+	if world == null:
 		return
-	_check("environment samples flat ground", is_zero_approx(environment.ground_height_at(Vector3(123.0, 0.0, -456.0))))
 
-	var sun: DirectionalLight3D = environment.sun()
+	_check("island has a generator", world.generator != null)
+	if world.generator == null:
+		return
+
+	# The island must have relief, or the terrain function is returning a constant and
+	# every other terrain check is passing for the wrong reason.
+	var low := INF
+	var high := -INF
+	for x in range(-12, 13, 3):
+		for z in range(-12, 13, 3):
+			var height := world.ground_height_at(Vector3(float(x) * 100.0, 0.0, float(z) * 100.0))
+			low = minf(low, height)
+			high = maxf(high, height)
+	_check("island has relief", high - low > 100.0, "%.0f m to %.0f m" % [low, high])
+
+	var atmosphere := world.get_node_or_null(^"Atmosphere") as IslandAtmosphere
+	_check("atmosphere is present", atmosphere != null)
+	if atmosphere == null:
+		return
+	var sun: DirectionalLight3D = atmosphere.sun()
 	_check("sun light exists", sun != null)
 	if sun != null:
-		_check("sun points upward", environment.sun_direction().y > 0.0, "y = %.2f" % environment.sun_direction().y)
+		_check("sun points upward", atmosphere.sun_direction().y > 0.0,
+			"y = %.2f" % atmosphere.sun_direction().y)
+
+
+## The aircraft must actually be flying over the island.
+##
+## This is the check that justifies putting terrain behind a single function. When
+## the island was first added to the scene, `Main` never resolved the world, so the
+## aircraft spawned at the world origin, assumed the ground was at y = 0, and flew
+## over nothing. Nothing errored: the flight suite passed, the scene ran, and the
+## only symptom was that the player was not over the island.
+##
+## So the wiring is asserted directly rather than inferred from the aircraft behaving
+## plausibly.
+func _check_world_wiring(main: Node) -> void:
+	var typed := main as Main
+	if typed == null:
+		_check("main is a Main node", false, str(main))
+		return
+
+	_check("main resolves a world", typed.world != null)
+	if typed.world == null:
+		return
+	_check("world exposes ground_height_at", typed.world.has_method(&"ground_height_at"))
+
+	var island := typed.world as Island
+	if island == null or island.generator == null:
+		_check("island generator is available", false)
+		return
+
+	var controller: AircraftController = typed.aircraft
+	if controller == null:
+		_check("aircraft controller is available", false)
+		return
+
+	# The ground sampler must be the island, not the controller's flat-world default.
+	var sampler := controller.ground_height_sampler()
+	_check("ground sampler is connected", sampler.is_valid())
+	if sampler.is_valid():
+		# Probe a point well inland, where the terrain is hundreds of metres above sea
+		# level. A sampler stuck at zero would return 0.0 here.
+		var probe := Vector3(0.0, 0.0, 0.0)
+		_check("ground sampler reads the island",
+			absf(float(sampler.call(probe)) - island.ground_height_at(probe)) < 0.01,
+			"sampler %.2f, island %.2f" % [
+				float(sampler.call(probe)), island.ground_height_at(probe)])
+
+	# The aircraft starts on the airport, on the surface, facing down the runway.
+	var start := controller.start_position
+	var airport := island.generator.airport_position
+	_check("aircraft starts at the airport",
+		Vector2(start.x, start.z).distance_to(airport) < 1.0,
+		"at %v, airport %v" % [Vector2(start.x, start.z), airport])
+	_check("aircraft starts on the surface",
+		absf(start.y - island.ground_height_at(start)) < 0.5,
+		"y %.2f, ground %.2f" % [start.y, island.ground_height_at(start)])
+	_check("aircraft faces down the runway",
+		absf(controller.start_heading_degrees - island.generator.airport_heading_degrees) < 1.0,
+		"%.0f deg, runway %.0f deg" % [
+			controller.start_heading_degrees, island.generator.airport_heading_degrees])
+
+	# The island must generate geometry, and stay low-poly. Both bounds matter: too
+	# few triangles and the terrain is invisible, too many and the design's low-poly
+	# look is gone.
+	await _settle()
+	_check("island builds chunks", island.built_chunk_count() > 0,
+		"%d chunks" % island.built_chunk_count())
+	var triangles := island.triangle_count()
+	_check("island has terrain geometry", triangles > 1000, "%d triangles" % triangles)
+	_check("island stays low poly", triangles < 250000, "%d triangles" % triangles)
 
 
 func _check_aircraft(main: Node) -> void:
@@ -158,7 +251,19 @@ func _check_steps(main: Node) -> void:
 	_check("state stays finite", is_finite(state.velocity.length()))
 	_check("throttle stays in range", state.throttle >= 0.0 and state.throttle <= 1.0, "%.3f" % state.throttle)
 	_check("aircraft rests on the ground at spawn", state.grounded, "altitude %.2f" % state.altitude)
-	_check_near("aircraft sits at gear height", state.altitude, aircraft.tuning.gear_height, 0.05)
+
+	# Height above the *ground*, not above sea level.
+	#
+	# state.altitude is height above sea level, so on the airport plateau — which sits
+	# 14 m up — it reads 15.05 rather than the 1.05 m of gear height. Comparing
+	# altitude against gear height only worked while the whole world was flat at zero,
+	# and would have passed on any island by accident if the plateau were lower.
+	var world := main.get_node_or_null(^"Island") as Island
+	if world != null:
+		var ground := world.ground_height_at(state.position)
+		_check_near("aircraft sits at gear height above the ground",
+			state.position.y - ground, aircraft.tuning.gear_height, 0.05)
+
 	_check("transform follows the state", aircraft.global_position.is_equal_approx(state.position))
 
 	var camera := _find_camera(main)

@@ -26,6 +26,7 @@ SUITES="tests/procedural_test.gd
 tests/input_map_test.gd
 tests/flight_model_test.gd
 tests/flight_regression_test.gd
+tests/terrain_test.gd
 tests/recorder_test.gd
 tests/scene_test.gd"
 
